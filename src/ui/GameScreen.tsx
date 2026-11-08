@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { applyMove, createGame, legalMovesFor } from '../game/engine'
 import { moveToChinese } from '../game/notation'
 import type { Color, GameState, Square } from '../game/types'
 import { inviteLink } from '../net/room'
-import type { SessionController, SessionState } from '../net/session'
+import type { ChatMessage, SessionController, SessionState } from '../net/session'
 import { Board } from './Board'
 import { ChatPanel } from './ChatPanel'
 import { Modal } from './Modal'
@@ -149,6 +149,9 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
   const [chatOpen, setChatOpen] = useState(false)
   const [confirmResign, setConfirmResign] = useState(false)
   const [resultDismissed, setResultDismissed] = useState(false)
+  const [chatPing, setChatPing] = useState<ChatMessage | null>(null)
+  const [unread, setUnread] = useState(0)
+  const seenIncomingRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (state.seat) setViewColor(state.seat)
@@ -162,6 +165,32 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
     if (game.status === 'playing') setResultDismissed(false)
   }, [game.status])
 
+  // 收到对方的新聊天消息时，在棋盘上弹出一条浮层提醒；聊天面板打开时不再打扰。
+  useEffect(() => {
+    const incoming = state.chat.filter(
+      (message) => message.from !== state.clientId && !seenIncomingRef.current.has(message.id),
+    )
+    if (incoming.length === 0) return
+    for (const message of incoming) seenIncomingRef.current.add(message.id)
+    if (chatOpen) return
+    setUnread((count) => count + incoming.length)
+    setChatPing(incoming[incoming.length - 1])
+  }, [state.chat, state.clientId, chatOpen])
+
+  // 打开聊天后清空未读与浮层提醒
+  useEffect(() => {
+    if (!chatOpen) return
+    setUnread(0)
+    setChatPing(null)
+  }, [chatOpen])
+
+  // 浮层提醒自动消失
+  useEffect(() => {
+    if (!chatPing) return
+    const timer = setTimeout(() => setChatPing(null), 6000)
+    return () => clearTimeout(timer)
+  }, [chatPing])
+
   const legal = useMemo(
     () => (selected === null ? [] : legalMovesFor(game, selected)),
     [game, selected],
@@ -174,6 +203,12 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
 
   const history = useMemo(() => buildHistory(game), [game])
   const visibleHistory = history.slice(-18)
+  const lastMove = history.length > 0 ? history[history.length - 1] : null
+  const lastMoveIsOpponent =
+    state.mode === 'online' &&
+    state.seat !== null &&
+    lastMove !== null &&
+    lastMove.color !== state.seat
   const result = resultText(state)
   const pendingIncoming = state.pending?.incoming ? state.pending : null
 
@@ -274,7 +309,7 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
             onClick={() => setChatOpen(true)}
           >
             聊天
-            {state.chat.length > 0 && <span className="unread-dot" />}
+            {unread > 0 && <span className="unread-badge">{unread > 99 ? '99+' : unread}</span>}
           </button>
         </div>
       </header>
@@ -291,14 +326,46 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
 
       <main className="game-body">
         <section className="board-column">
-          <Board
-            game={game}
-            viewColor={viewColor}
-            selected={selected}
-            legal={legal}
-            interactive={canPlay}
-            onSelect={handleSelect}
-          />
+          {lastMove && (
+            <div className={`last-move-cue${lastMoveIsOpponent ? ' is-opponent' : ''}`}>
+              <span className="last-move-cue-label">
+                {lastMoveIsOpponent ? '对方上一步' : '上一步'}
+              </span>
+              <span className={`last-move-cue-side ${lastMove.color}`}>
+                {lastMove.color === 'red' ? '红方' : '黑方'}
+              </span>
+              <span className="last-move-cue-text">{lastMove.text}</span>
+            </div>
+          )}
+
+          <div className="board-stage">
+            <Board
+              game={game}
+              viewColor={viewColor}
+              selected={selected}
+              legal={legal}
+              interactive={canPlay}
+              onSelect={handleSelect}
+            />
+
+            {chatPing && (
+              <button
+                type="button"
+                className="chat-ping"
+                onClick={() => {
+                  setChatPing(null)
+                  setChatOpen(true)
+                }}
+              >
+                <span className="chat-ping-avatar">{chatPing.name.slice(0, 1)}</span>
+                <span className="chat-ping-main">
+                  <span className="chat-ping-name">{chatPing.name}</span>
+                  <span className="chat-ping-text">{chatPing.text}</span>
+                </span>
+                <span className="chat-ping-hint">查看</span>
+              </button>
+            )}
+          </div>
 
           <div className="mobile-actions">
             <button

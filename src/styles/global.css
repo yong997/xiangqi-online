@@ -473,6 +473,133 @@ input::placeholder {
   max-width: 620px;
 }
 
+.board-stage {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+}
+
+.last-move-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 620px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.last-move-cue.is-opponent {
+  border-color: rgba(226, 185, 106, 0.35);
+  background: rgba(226, 185, 106, 0.1);
+  color: #e8d3a7;
+}
+
+.last-move-cue-label {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.last-move-cue-side {
+  font-weight: 600;
+}
+
+.last-move-cue-side.red {
+  color: #f0a8a2;
+}
+
+.last-move-cue-side.black {
+  color: #cfc6b6;
+}
+
+.last-move-cue-text {
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+.chat-ping {
+  position: fixed;
+  bottom: calc(74px + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100vw - 24px);
+  max-width: 420px;
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(226, 185, 106, 0.5);
+  border-left: 3px solid var(--gold);
+  border-radius: 14px;
+  background: #1b242e;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  text-align: left;
+  animation: chatPingIn 0.22s ease-out;
+}
+
+@keyframes chatPingIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.chat-ping-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(226, 185, 106, 0.18);
+  color: var(--gold);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.chat-ping-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat-ping-name {
+  color: var(--gold);
+  font-size: 11px;
+}
+
+.chat-ping-text {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-ping-hint {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .board-svg {
   display: block;
   width: 100%;
@@ -595,10 +722,32 @@ input::placeholder {
 }
 
 .last-move-mark {
-  fill: rgba(226, 185, 106, 0.25);
-  stroke: rgba(226, 185, 106, 0.45);
-  stroke-width: 1;
   pointer-events: none;
+}
+
+.last-move-mark.is-from {
+  fill: rgba(226, 185, 106, 0.16);
+  stroke: rgba(226, 185, 106, 0.35);
+  stroke-width: 2;
+}
+
+.last-move-mark.is-to {
+  fill: rgba(226, 185, 106, 0.34);
+  stroke: rgba(255, 208, 128, 0.9);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 6px rgba(226, 185, 106, 0.55));
+  animation: lastMoveFlash 1.1s ease-out;
+}
+
+@keyframes lastMoveFlash {
+  0% {
+    fill: rgba(255, 208, 128, 0.72);
+    stroke-width: 5;
+  }
+  100% {
+    fill: rgba(226, 185, 106, 0.34);
+    stroke-width: 3;
+  }
 }
 
 .legal-dot {
@@ -1015,6 +1164,21 @@ input::placeholder {
   margin-left: 6px;
   border-radius: 50%;
   background: var(--gold);
+}
+
+.unread-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .mobile-only {

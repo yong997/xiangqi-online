@@ -223,21 +223,24 @@ export function Board({ game, viewColor, selected, legal, interactive, onSelect 
           )
         })}
 
-        {lastMove &&
-          [lastMove.from, lastMove.to].map((square, index) => {
-            const { x, y } = displayPosition(square, viewColor)
-            return (
-              <rect
-                key={`last-${index}`}
-                x={x - 40}
-                y={y - 40}
-                width={80}
-                height={80}
-                rx={12}
-                className="last-move-mark"
-              />
-            )
-          })}
+        {lastMove && (
+          <g className="last-move" aria-hidden="true">
+            {[lastMove.from, lastMove.to].map((square, index) => {
+              const { x, y } = displayPosition(square, viewColor)
+              return (
+                <rect
+                  key={`last-${index}-${game.moves.length}`}
+                  x={x - 42}
+                  y={y - 42}
+                  width={84}
+                  height={84}
+                  rx={14}
+                  className={`last-move-mark ${index === 0 ? 'is-from' : 'is-to'}`}
+                />
+              )
+            })}
+          </g>
+        )}
 
         {game.board.map((piece, square) => {
           if (!piece) return null
