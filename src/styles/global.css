@@ -449,17 +449,19 @@ input::placeholder {
 }
 
 .game-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: clamp(14px, 2vw, 26px);
-  width: min(1380px, 100%);
+  width: 100%;
+  max-width: 1380px;
   margin: 0 auto;
   padding: clamp(12px, 2.4vw, 26px);
 }
 
 .board-column {
   display: flex;
+  flex: 1 1 340px;
   flex-direction: column;
   align-items: center;
   gap: 12px;
@@ -467,7 +469,8 @@ input::placeholder {
 }
 
 .board-shell {
-  width: min(100%, 620px);
+  width: 100%;
+  max-width: 620px;
 }
 
 .board-svg {
@@ -482,7 +485,8 @@ input::placeholder {
 
 .mobile-actions {
   display: none;
-  width: min(100%, 620px);
+  width: 100%;
+  max-width: 620px;
   gap: 8px;
   justify-content: center;
 }
@@ -617,6 +621,7 @@ input::placeholder {
 
 .side-panel {
   display: flex;
+  flex: 0 1 340px;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
@@ -1019,12 +1024,9 @@ input::placeholder {
 /* --------------------------------------------------------------- responsive */
 
 @media (max-width: 980px) {
-  .game-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .board-shell {
-    width: min(100%, calc((100dvh - 230px) * 0.9), 620px);
+  .board-column,
+  .side-panel {
+    flex-basis: 100%;
   }
 
   .mobile-actions {
@@ -1045,10 +1047,6 @@ input::placeholder {
 
   .history-panel {
     max-height: 220px;
-  }
-
-  .side-panel {
-    width: 100%;
   }
 }
 
