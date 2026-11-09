@@ -82,8 +82,10 @@ function ClockBar({ state }: { state: SessionState }) {
   const tc = state.timeControl
   if (!hasClock(tc) || state.game.status !== 'playing') return null
   const now = state.clockNow || Date.now()
-  const startedAt = state.turnStartedAt
-  const elapsed = startedAt != null ? Math.max(0, now - startedAt) : 0
+  const running =
+    state.turnStartedAt != null ? Math.max(0, now - state.turnStartedAt) : 0
+  const elapsed = state.turnElapsedMs + running
+  const started = state.turnStartedAt != null || state.turnElapsedMs > 0 || state.clockPaused
   const active = state.game.turn
   const red =
     state.redTotalMs != null
@@ -97,10 +99,10 @@ function ClockBar({ state }: { state: SessionState }) {
   const level = (ms: number | null) =>
     ms == null ? '' : ms <= 10_000 ? ' is-danger' : ms <= 30_000 ? ' is-warning' : ''
   const display = (ms: number | null) =>
-    startedAt == null || ms == null ? '--:--' : formatClock(ms)
+    !started || ms == null ? '--:--' : formatClock(ms)
 
   return (
-    <div className="clock-bar" role="status">
+    <div className={`clock-bar${state.clockPaused ? ' is-paused' : ''}`} role="status">
       {red != null && (
         <span className={`clock-side red${active === 'red' ? ' is-active' : ''}${level(red)}`}>
           <span className="clock-side-name">红方</span>
@@ -119,6 +121,7 @@ function ClockBar({ state }: { state: SessionState }) {
           <span className="clock-side-time">{display(black)}</span>
         </span>
       )}
+      {state.clockPaused && <span className="clock-paused-tag">已暂停</span>}
     </div>
   )
 }
@@ -378,7 +381,11 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
       )}
 
       {state.mode === 'online' && state.seat && !state.peerOnline && game.status === 'playing' && (
-        <div className="mode-banner warn">对方暂时离线，棋局已保存，等待重连。</div>
+        <div className="mode-banner warn">
+          {hasClock(state.timeControl)
+            ? '对方离线，计时已暂停，等待对方重连。'
+            : '对方暂时离线，棋局已保存，等待重连。'}
+        </div>
       )}
 
       <main className="game-body">

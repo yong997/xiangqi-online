@@ -74,6 +74,18 @@ export function statusForTimeout(loser: Color): 'red_wins' | 'black_wins' {
   return loser === 'red' ? 'black_wins' : 'red_wins'
 }
 
+/**
+ * 计算本回合已用时：累计已用时 + 当前运行时长（runningSince 为 null 表示已暂停）。
+ */
+export function accumulatedElapsed(
+  accMs: number,
+  runningSince: number | null,
+  now: number,
+): number {
+  const base = Math.max(0, accMs)
+  return runningSince != null ? base + Math.max(0, now - runningSince) : base
+}
+
 /** 分钟转毫秒；非法/非正数返回 null。 */
 export function minutesToMs(minutes: number | null | undefined): number | null {
   if (minutes == null || !Number.isFinite(minutes) || minutes <= 0) return null

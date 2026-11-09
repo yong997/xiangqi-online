@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  accumulatedElapsed,
   evaluateClock,
   formatClock,
   hasClock,
@@ -53,5 +54,12 @@ describe('对局计时工具', () => {
     expect(minutesToMs(null)).toBeNull()
     expect(msToMinutes(180_000)).toBe(3)
     expect(msToMinutes(null)).toBeNull()
+  })
+
+  it('accumulatedElapsed 运行与暂停', () => {
+    expect(accumulatedElapsed(0, 1000, 4000)).toBe(3000)
+    expect(accumulatedElapsed(5000, null, 9999)).toBe(5000)
+    expect(accumulatedElapsed(5000, 1000, 3000)).toBe(7000)
+    expect(accumulatedElapsed(-10, null, 9999)).toBe(0)
   })
 })

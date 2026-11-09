@@ -33,6 +33,7 @@ export type WirePayload =
       redTotalMs?: number | null
       blackTotalMs?: number | null
       turnElapsedMs?: number
+      clockPaused?: boolean
       endReason?: EndReason | null
     }
   | { t: 'undo-req'; to?: string; targetMoveNo: number }

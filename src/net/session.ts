@@ -9,6 +9,7 @@ import {
 } from '../game/engine'
 import type { GameState, GameStatus } from '../game/types'
 import {
+  accumulatedElapsed,
   evaluateClock,
   hasClock,
   statusForTimeout,
@@ -69,8 +70,12 @@ export interface SessionState {
   redTotalMs: number | null
   /** 黑方在本回合开始时的剩余总用时（null=未启用总用时） */
   blackTotalMs: number | null
-  /** 当前回合本地开始时间；null 表示计时未启动 */
+  /** 当前回合本地开始时间；null 表示计时未运行（未开始或暂停） */
   turnStartedAt: number | null
+  /** 当前回合已累计用时（暂停前累加） */
+  turnElapsedMs: number
+  /** 是否因离线/断线暂停计时 */
+  clockPaused: boolean
   /** 最近一次计时 tick 的本地时间，驱动 UI 倒计时 */
   clockNow: number
   /** 对局结束原因（超时/认输/和棋） */
@@ -151,6 +156,17 @@ export class SessionController {
     const blackTotalMs = totalEnabled
       ? (restoring && saved?.blackTotalMs != null ? saved.blackTotalMs : timeControl.totalMs)
       : null
+    const nowMs = Date.now()
+    const savedElapsed =
+      restoring && saved
+        ? saved.turnElapsedMs > 0 || saved.clockPaused
+          ? saved.turnElapsedMs
+          : saved.turnStartedAt != null
+            ? Math.max(0, nowMs - saved.turnStartedAt)
+            : 0
+        : 0
+    const savedRunning =
+      restoring && !!saved && !saved.clockPaused && saved.turnStartedAt != null
 
     this.state = {
       mode: options.mode,
@@ -172,12 +188,14 @@ export class SessionController {
           : hasGoEasyConfig()
             ? 'goeasy'
             : 'local',
-      startedAt: Date.now(),
+      startedAt: nowMs,
       timeControl,
       redTotalMs,
       blackTotalMs,
-      turnStartedAt: restoring && saved?.turnStartedAt != null ? saved.turnStartedAt : null,
-      clockNow: Date.now(),
+      turnStartedAt: savedRunning && hasClock(timeControl) ? nowMs : null,
+      turnElapsedMs: savedElapsed,
+      clockPaused: restoring && saved?.clockPaused === true,
+      clockNow: nowMs,
       endReason: saved && saved.status !== 'playing' ? saved.endReason ?? null : null,
     }
 
@@ -274,6 +292,7 @@ export class SessionController {
       this.announce()
       this.refreshPresence()
     }
+    this.tickClock()
   }
 
   // ------------------------------------------------------------------ helpers
@@ -299,7 +318,9 @@ export class SessionController {
       timeControl: this.state.timeControl,
       redTotalMs: this.state.redTotalMs,
       blackTotalMs: this.state.blackTotalMs,
-      turnStartedAt: this.state.turnStartedAt,
+      turnStartedAt: null,
+      turnElapsedMs: this.currentElapsed(),
+      clockPaused: this.state.clockPaused,
       endReason: this.state.endReason,
     })
     saveName(this.state.name)
@@ -327,25 +348,77 @@ export class SessionController {
     return this.state.game.turn === 'red' ? this.state.redTotalMs : this.state.blackTotalMs
   }
 
-  /** 计时在「双方就座（本地为开局）」后才开始，避免房主空等被判负。 */
+  private currentElapsed(now = Date.now()): number {
+    return accumulatedElapsed(this.state.turnElapsedMs, this.state.turnStartedAt, now)
+  }
+
+  /** 计时是否可以运行：本地恒可；联机要求自己连上且对方在线。 */
+  private clockCanRun(): boolean {
+    if (this.mode === 'local') return true
+    return this.state.conn === 'connected' && this.state.peerOnline
+  }
+
+  /** 依据在线状态暂停/恢复计时；返回计时当前是否在运行。 */
+  private updateClockRunState(now: number): boolean {
+    if (!hasClock(this.state.timeControl)) return false
+    if (this.state.game.status !== 'playing') return false
+    if (!this.bothSeated()) return false
+
+    if (!this.clockCanRun()) {
+      if (this.state.turnStartedAt != null) {
+        const elapsed =
+          this.state.turnElapsedMs + Math.max(0, now - this.state.turnStartedAt)
+        this.update({
+          turnElapsedMs: elapsed,
+          turnStartedAt: null,
+          clockPaused: true,
+          clockNow: now,
+        })
+        this.persist()
+      }
+      return false
+    }
+
+    if (this.state.turnStartedAt == null) {
+      // 已有进度或处于暂停时才恢复；从未开始则交给 maybeStartClock。
+      if (this.state.turnElapsedMs > 0 || this.state.clockPaused) {
+        this.update({ turnStartedAt: now, clockPaused: false, clockNow: now })
+        this.persist()
+      } else {
+        return false
+      }
+    }
+    return true
+  }
+
+  /** 计时在「双方就座且在线（本地为开局）」后才开始，避免房主空等被判负。 */
   private maybeStartClock(): void {
     if (!hasClock(this.state.timeControl)) return
     if (this.state.game.status !== 'playing') return
     if (this.state.turnStartedAt != null) return
+    if (this.state.turnElapsedMs > 0) return
     if (!this.bothSeated()) return
+    if (!this.clockCanRun()) return
     const now = Date.now()
-    this.update({ turnStartedAt: now, clockNow: now })
+    this.update({
+      turnStartedAt: now,
+      turnElapsedMs: 0,
+      clockPaused: false,
+      clockNow: now,
+    })
   }
 
   private tickClock(): void {
     if (this.state.game.status !== 'playing') return
     if (!hasClock(this.state.timeControl)) return
-    if (this.state.turnStartedAt == null) {
-      this.maybeStartClock()
+    const now = Date.now()
+    if (!this.updateClockRunState(now)) {
+      if (this.state.turnStartedAt == null && this.state.turnElapsedMs === 0) {
+        this.maybeStartClock()
+      }
       return
     }
-    const now = Date.now()
-    const elapsed = now - this.state.turnStartedAt
+    const elapsed = this.currentElapsed(now)
     const evaluation = evaluateClock(
       this.state.timeControl.perMoveMs,
       this.state.timeControl.totalMs,
@@ -369,7 +442,13 @@ export class SessionController {
       remain = Math.max(0, (baseline ?? totalMs) - Math.max(0, elapsed))
     }
     const now = Date.now()
-    const patch: Partial<SessionState> = { turnStartedAt: now, clockNow: now }
+    const canRun = this.clockCanRun() && this.bothSeated()
+    const patch: Partial<SessionState> = {
+      turnStartedAt: canRun ? now : null,
+      turnElapsedMs: 0,
+      clockPaused: !canRun,
+      clockNow: now,
+    }
     if (remain != null) {
       if (mover === 'red') patch.redTotalMs = remain
       else patch.blackTotalMs = remain
@@ -402,6 +481,8 @@ export class SessionController {
       redTotalMs: total,
       blackTotalMs: total,
       turnStartedAt: null,
+      turnElapsedMs: 0,
+      clockPaused: false,
       clockNow: Date.now(),
       endReason: null,
     })
@@ -472,10 +553,6 @@ export class SessionController {
   }
 
   private sendSync(to?: string): void {
-    const turnElapsedMs =
-      this.state.turnStartedAt != null
-        ? Math.max(0, Date.now() - this.state.turnStartedAt)
-        : 0
     this.send({
       t: 'sync',
       to,
@@ -486,7 +563,8 @@ export class SessionController {
       timeControl: this.state.timeControl,
       redTotalMs: this.state.redTotalMs,
       blackTotalMs: this.state.blackTotalMs,
-      turnElapsedMs,
+      turnElapsedMs: this.currentElapsed(),
+      clockPaused: this.state.clockPaused,
       endReason: this.state.endReason,
     })
   }
@@ -516,7 +594,10 @@ export class SessionController {
     const online = opponent
       ? Date.now() - (this.lastSeen.get(opponent) ?? 0) < 45_000
       : false
-    if (online !== this.state.peerOnline) this.update({ peerOnline: online })
+    if (online !== this.state.peerOnline) {
+      this.update({ peerOnline: online })
+      this.tickClock()
+    }
   }
 
   // ----------------------------------------------------------------- messages
@@ -534,6 +615,7 @@ export class SessionController {
     // 收到对方消息立即视为在线，不必等 5 秒一次的在线状态轮询。
     if (!this.state.peerOnline && msg.from === this.opponentId()) {
       this.update({ peerOnline: true })
+      this.tickClock()
     }
     if (msg.t === 'hello') this.mergeName(msg.from, msg.name)
     if (msg.t === 'chat') this.mergeName(msg.from, msg.name)
@@ -663,7 +745,13 @@ export class SessionController {
       this.setGame(next)
       if (hasClock(this.state.timeControl)) {
         const now = Date.now()
-        const patch: Partial<SessionState> = { turnStartedAt: now, clockNow: now }
+        const canRun = this.clockCanRun() && this.bothSeated()
+        const patch: Partial<SessionState> = {
+          turnStartedAt: canRun ? now : null,
+          turnElapsedMs: 0,
+          clockPaused: !canRun,
+          clockNow: now,
+        }
         if (
           this.state.timeControl.totalMs != null &&
           typeof msg.clockMs === 'number'
@@ -739,34 +827,44 @@ export class SessionController {
       this.persist()
     }
 
-    // 采纳对方的计时配置与时钟（仅房主/红方为权威来源，且局面不落后）。
+    // 计时同步：配置仅采纳红方（房主）权威值；计时进度按局面新旧采纳。
     const syncSenderSeat = this.state.seatMap[msg.from]
-    if (
-      msg.timeControl !== undefined &&
-      incomingLen >= myLen &&
-      syncSenderSeat === 'red'
-    ) {
-      const tc = msg.timeControl ?? TIME_CONTROL_OFF
+    if (msg.timeControl !== undefined && incomingLen >= myLen) {
+      const fromHost = syncSenderSeat === 'red'
+      const tc = fromHost ? msg.timeControl ?? TIME_CONTROL_OFF : this.state.timeControl
       const elapsed =
         typeof msg.turnElapsedMs === 'number' ? Math.max(0, msg.turnElapsedMs) : 0
-      const patch: Partial<SessionState> = { timeControl: tc, clockNow: Date.now() }
-      if (tc.totalMs != null) {
-        patch.redTotalMs =
-          typeof msg.redTotalMs === 'number' ? msg.redTotalMs : tc.totalMs
-        patch.blackTotalMs =
-          typeof msg.blackTotalMs === 'number' ? msg.blackTotalMs : tc.totalMs
-      } else {
-        patch.redTotalMs = null
-        patch.blackTotalMs = null
+      const incomingPaused = msg.clockPaused === true
+      const progressOk = adopt || (incomingLen === myLen && !diverged)
+      const patch: Partial<SessionState> = { clockNow: Date.now() }
+
+      if (fromHost) {
+        patch.timeControl = tc
+        if (tc.totalMs != null) {
+          patch.redTotalMs =
+            typeof msg.redTotalMs === 'number' ? msg.redTotalMs : tc.totalMs
+          patch.blackTotalMs =
+            typeof msg.blackTotalMs === 'number' ? msg.blackTotalMs : tc.totalMs
+        } else {
+          patch.redTotalMs = null
+          patch.blackTotalMs = null
+        }
+      }
+
+      if (progressOk && hasClock(tc)) {
+        patch.turnElapsedMs = elapsed
+        if (status !== 'playing') {
+          patch.turnStartedAt = null
+          patch.clockPaused = false
+        } else {
+          patch.clockPaused = incomingPaused
+          patch.turnStartedAt = incomingPaused ? null : Date.now()
+        }
       }
       if (status !== 'playing') {
-        patch.turnStartedAt = null
         patch.endReason = msg.endReason ?? null
       } else {
         patch.endReason = null
-        if (hasClock(tc) && (adopt || (incomingLen === myLen && !diverged))) {
-          patch.turnStartedAt = Date.now() - elapsed
-        }
       }
       this.update(patch)
     }
@@ -934,7 +1032,13 @@ export class SessionController {
     // 悔棋后轮到原走子方，本步计时重置（总用时按现状不退还）。
     if (this.state.game.status === 'playing' && hasClock(this.state.timeControl)) {
       const now = Date.now()
-      this.update({ turnStartedAt: now, clockNow: now })
+      const canRun = this.clockCanRun() && this.bothSeated()
+      this.update({
+        turnStartedAt: canRun ? now : null,
+        turnElapsedMs: 0,
+        clockPaused: !canRun,
+        clockNow: now,
+      })
     }
   }
 
@@ -951,8 +1055,11 @@ export class SessionController {
       }
     }
 
-    const elapsed = this.state.turnStartedAt != null ? Date.now() - this.state.turnStartedAt : 0
-    if (hasClock(this.state.timeControl) && this.state.turnStartedAt != null) {
+    const elapsed = this.currentElapsed()
+    if (
+      hasClock(this.state.timeControl) &&
+      (this.state.turnStartedAt != null || this.state.turnElapsedMs > 0)
+    ) {
       const evaluation = evaluateClock(
         this.state.timeControl.perMoveMs,
         this.state.timeControl.totalMs,

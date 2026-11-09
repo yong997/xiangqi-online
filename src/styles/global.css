@@ -722,6 +722,26 @@ input::placeholder {
   }
 }
 
+.clock-bar.is-paused .clock-side,
+.clock-bar.is-paused .clock-move {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+
+.clock-bar.is-paused .clock-side-time,
+.clock-bar.is-paused .clock-move-time {
+  animation: none;
+}
+
+.clock-paused-tag {
+  padding: 6px 10px;
+  border: 1px solid rgba(226, 185, 106, 0.35);
+  border-radius: 999px;
+  background: rgba(226, 185, 106, 0.12);
+  color: #e8d3a7;
+  font-size: 12px;
+}
+
 .chat-ping {
   position: fixed;
   bottom: calc(74px + env(safe-area-inset-bottom));

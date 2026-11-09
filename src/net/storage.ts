@@ -23,6 +23,8 @@ export interface SavedSession {
   redTotalMs: number | null
   blackTotalMs: number | null
   turnStartedAt: number | null
+  turnElapsedMs: number
+  clockPaused: boolean
   endReason: EndReason | null
 }
 
@@ -107,6 +109,8 @@ export function loadSavedSession(room: string, clientId: string): SavedSession |
       redTotalMs: numberOrNull(parsed.redTotalMs),
       blackTotalMs: numberOrNull(parsed.blackTotalMs),
       turnStartedAt: numberOrNull(parsed.turnStartedAt),
+      turnElapsedMs: numberOrNull(parsed.turnElapsedMs) ?? 0,
+      clockPaused: parsed.clockPaused === true,
       endReason: parseEndReason(parsed.endReason),
     }
   } catch {
