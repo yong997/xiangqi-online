@@ -8,8 +8,16 @@ import {
   toFenOf,
 } from '../game/engine'
 import type { GameState, GameStatus } from '../game/types'
+import {
+  evaluateClock,
+  hasClock,
+  statusForTimeout,
+  TIME_CONTROL_OFF,
+  type TimeControl,
+} from './clock'
 import { hasGoEasyConfig, createTransport } from './transport'
 import type {
+  EndReason,
   Seat,
   Transport,
   TransportStatus,
@@ -55,6 +63,18 @@ export interface SessionState {
   pending: PendingRequest | null
   transportMode: 'goeasy' | 'local' | 'none'
   startedAt: number
+  /** 对局时限配置 */
+  timeControl: TimeControl
+  /** 红方在本回合开始时的剩余总用时（null=未启用总用时） */
+  redTotalMs: number | null
+  /** 黑方在本回合开始时的剩余总用时（null=未启用总用时） */
+  blackTotalMs: number | null
+  /** 当前回合本地开始时间；null 表示计时未启动 */
+  turnStartedAt: number | null
+  /** 最近一次计时 tick 的本地时间，驱动 UI 倒计时 */
+  clockNow: number
+  /** 对局结束原因（超时/认输/和棋） */
+  endReason: EndReason | null
 }
 
 export interface SessionOptions {
@@ -63,6 +83,7 @@ export interface SessionOptions {
   clientId: string
   name: string
   intent: 'create' | 'join'
+  timeControl?: TimeControl
 }
 
 function randomId(): string {
@@ -90,6 +111,7 @@ export class SessionController {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private presenceTimer: ReturnType<typeof setInterval> | null = null
   private helloTimer: ReturnType<typeof setInterval> | null = null
+  private clockTimer: ReturnType<typeof setInterval> | null = null
   private noticeTimer: ReturnType<typeof setTimeout> | null = null
   private pendingTimer: ReturnType<typeof setTimeout> | null = null
   private lastChatAt = 0
@@ -119,6 +141,16 @@ export class SessionController {
         ? null
         : (savedSeat ?? (options.intent === 'create' ? 'red' : null))
     const name = options.name.trim() || saved?.name || '玩家'
+    const timeControl: TimeControl =
+      options.timeControl ?? saved?.timeControl ?? TIME_CONTROL_OFF
+    const totalEnabled = timeControl.totalMs != null
+    const restoring = saved != null && saved.status === 'playing'
+    const redTotalMs = totalEnabled
+      ? (restoring && saved?.redTotalMs != null ? saved.redTotalMs : timeControl.totalMs)
+      : null
+    const blackTotalMs = totalEnabled
+      ? (restoring && saved?.blackTotalMs != null ? saved.blackTotalMs : timeControl.totalMs)
+      : null
 
     this.state = {
       mode: options.mode,
@@ -141,6 +173,12 @@ export class SessionController {
             ? 'goeasy'
             : 'local',
       startedAt: Date.now(),
+      timeControl,
+      redTotalMs,
+      blackTotalMs,
+      turnStartedAt: restoring && saved?.turnStartedAt != null ? saved.turnStartedAt : null,
+      clockNow: Date.now(),
+      endReason: saved && saved.status !== 'playing' ? saved.endReason ?? null : null,
     }
 
     if (options.mode === 'online') {
@@ -163,9 +201,11 @@ export class SessionController {
   start(): void {
     if (this.running) return
     this.running = true
+    this.clockTimer = setInterval(() => this.tickClock(), 500)
 
     if (this.mode === 'local') {
       this.update({ conn: 'connected' })
+      this.maybeStartClock()
       return
     }
 
@@ -198,9 +238,11 @@ export class SessionController {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
     if (this.presenceTimer) clearInterval(this.presenceTimer)
     if (this.helloTimer) clearInterval(this.helloTimer)
+    if (this.clockTimer) clearInterval(this.clockTimer)
     this.heartbeatTimer = null
     this.presenceTimer = null
     this.helloTimer = null
+    this.clockTimer = null
     this.unsubMessage?.()
     this.unsubStatus?.()
     this.unsubMessage = null
@@ -220,7 +262,10 @@ export class SessionController {
   }
 
   private readonly onVisibility = (): void => {
-    if (document.visibilityState === 'visible') this.onWake()
+    if (document.visibilityState === 'visible') {
+      this.tickClock()
+      this.onWake()
+    }
   }
 
   private handleStatus(status: TransportStatus): void {
@@ -251,15 +296,116 @@ export class SessionController {
       moves: this.state.game.moves.map(encodeMove),
       status: this.state.game.status,
       updatedAt: Date.now(),
+      timeControl: this.state.timeControl,
+      redTotalMs: this.state.redTotalMs,
+      blackTotalMs: this.state.blackTotalMs,
+      turnStartedAt: this.state.turnStartedAt,
+      endReason: this.state.endReason,
     })
     saveName(this.state.name)
   }
 
   private setGame(game: GameState): void {
     const patch: Partial<SessionState> = { game }
-    if (game.status !== 'playing') patch.pending = null
+    if (game.status !== 'playing') {
+      patch.pending = null
+      patch.turnStartedAt = null
+    }
     this.update(patch)
     this.persist()
+  }
+
+  // ------------------------------------------------------------------- clocks
+
+  private bothSeated(): boolean {
+    if (this.mode === 'local') return true
+    const seats = Object.values(this.state.seatMap)
+    return seats.includes('red') && seats.includes('black')
+  }
+
+  private activeTotalMs(): number | null {
+    return this.state.game.turn === 'red' ? this.state.redTotalMs : this.state.blackTotalMs
+  }
+
+  /** 计时在「双方就座（本地为开局）」后才开始，避免房主空等被判负。 */
+  private maybeStartClock(): void {
+    if (!hasClock(this.state.timeControl)) return
+    if (this.state.game.status !== 'playing') return
+    if (this.state.turnStartedAt != null) return
+    if (!this.bothSeated()) return
+    const now = Date.now()
+    this.update({ turnStartedAt: now, clockNow: now })
+  }
+
+  private tickClock(): void {
+    if (this.state.game.status !== 'playing') return
+    if (!hasClock(this.state.timeControl)) return
+    if (this.state.turnStartedAt == null) {
+      this.maybeStartClock()
+      return
+    }
+    const now = Date.now()
+    const elapsed = now - this.state.turnStartedAt
+    const evaluation = evaluateClock(
+      this.state.timeControl.perMoveMs,
+      this.state.timeControl.totalMs,
+      this.activeTotalMs(),
+      elapsed,
+    )
+    if (evaluation.expiredBy) {
+      this.handleTimeout(this.state.game.turn, evaluation.expiredBy)
+      return
+    }
+    this.update({ clockNow: now })
+  }
+
+  /** 结算走子方总用时并重置本步计时；返回走子方剩余总用时（未启用总用时为 null）。 */
+  private applyClockAfterMove(mover: Seat, elapsed: number): number | null {
+    if (!hasClock(this.state.timeControl)) return null
+    const totalMs = this.state.timeControl.totalMs
+    let remain: number | null = null
+    if (totalMs != null) {
+      const baseline = mover === 'red' ? this.state.redTotalMs : this.state.blackTotalMs
+      remain = Math.max(0, (baseline ?? totalMs) - Math.max(0, elapsed))
+    }
+    const now = Date.now()
+    const patch: Partial<SessionState> = { turnStartedAt: now, clockNow: now }
+    if (remain != null) {
+      if (mover === 'red') patch.redTotalMs = remain
+      else patch.blackTotalMs = remain
+    }
+    this.update(patch)
+    return remain
+  }
+
+  private handleTimeout(loser: Seat, reason: 'perMove' | 'total'): void {
+    if (this.state.game.status !== 'playing') return
+    this.update({ endReason: 'timeout' })
+    this.setGame({ ...this.state.game, status: statusForTimeout(loser) })
+    if (this.mode === 'online') {
+      this.send({ t: 'timeout', seat: loser, moveNo: this.state.game.moves.length, reason })
+    }
+    if (this.mode === 'local') {
+      this.notify(loser === 'red' ? '红方超时，黑方胜' : '黑方超时，红方胜')
+      return
+    }
+    if (this.state.seat === loser) {
+      this.notify(reason === 'total' ? '总用时用完，你输了' : '本步超时，你输了')
+    } else {
+      this.notify(reason === 'total' ? '对方总用时用完，你赢了' : '对方超时，你赢了')
+    }
+  }
+
+  private resetClocks(): void {
+    const total = this.state.timeControl.totalMs
+    this.update({
+      redTotalMs: total,
+      blackTotalMs: total,
+      turnStartedAt: null,
+      clockNow: Date.now(),
+      endReason: null,
+    })
+    this.maybeStartClock()
   }
 
   private notify(text: string): void {
@@ -326,6 +472,10 @@ export class SessionController {
   }
 
   private sendSync(to?: string): void {
+    const turnElapsedMs =
+      this.state.turnStartedAt != null
+        ? Math.max(0, Date.now() - this.state.turnStartedAt)
+        : 0
     this.send({
       t: 'sync',
       to,
@@ -333,6 +483,11 @@ export class SessionController {
       status: this.state.game.status,
       seatMap: { ...this.state.seatMap },
       nameMap: { ...this.state.nameMap },
+      timeControl: this.state.timeControl,
+      redTotalMs: this.state.redTotalMs,
+      blackTotalMs: this.state.blackTotalMs,
+      turnElapsedMs,
+      endReason: this.state.endReason,
     })
   }
 
@@ -414,6 +569,9 @@ export class SessionController {
       case 'resign':
         this.onResign(msg)
         break
+      case 'timeout':
+        this.onTimeout(msg)
+        break
       case 'rematch-req':
         this.onRematchRequest(msg)
         break
@@ -463,6 +621,7 @@ export class SessionController {
     } else {
       this.send({ t: 'sync-req', to: msg.from })
     }
+    this.maybeStartClock()
   }
 
   private onSeat(msg: Extract<WireMsg, { t: 'seat' }>): void {
@@ -485,6 +644,7 @@ export class SessionController {
     })
     this.send({ t: 'sync-req' })
     this.persist()
+    this.maybeStartClock()
   }
 
   private onMove(msg: Extract<WireMsg, { t: 'move' }>): void {
@@ -501,6 +661,18 @@ export class SessionController {
     try {
       const next = applyMove(this.state.game, decodeMove(msg.move))
       this.setGame(next)
+      if (hasClock(this.state.timeControl)) {
+        const now = Date.now()
+        const patch: Partial<SessionState> = { turnStartedAt: now, clockNow: now }
+        if (
+          this.state.timeControl.totalMs != null &&
+          typeof msg.clockMs === 'number'
+        ) {
+          if (senderSeat === 'red') patch.redTotalMs = msg.clockMs
+          else patch.blackTotalMs = msg.clockMs
+        }
+        this.update(patch)
+      }
       if (this.state.pending && !this.state.pending.incoming) {
         this.clearPending()
       }
@@ -566,6 +738,39 @@ export class SessionController {
       this.notify(adoptedSeat === 'red' ? '你执红先行' : '你执黑后行')
       this.persist()
     }
+
+    // 采纳对方的计时配置与时钟（仅房主/红方为权威来源，且局面不落后）。
+    const syncSenderSeat = this.state.seatMap[msg.from]
+    if (
+      msg.timeControl !== undefined &&
+      incomingLen >= myLen &&
+      syncSenderSeat === 'red'
+    ) {
+      const tc = msg.timeControl ?? TIME_CONTROL_OFF
+      const elapsed =
+        typeof msg.turnElapsedMs === 'number' ? Math.max(0, msg.turnElapsedMs) : 0
+      const patch: Partial<SessionState> = { timeControl: tc, clockNow: Date.now() }
+      if (tc.totalMs != null) {
+        patch.redTotalMs =
+          typeof msg.redTotalMs === 'number' ? msg.redTotalMs : tc.totalMs
+        patch.blackTotalMs =
+          typeof msg.blackTotalMs === 'number' ? msg.blackTotalMs : tc.totalMs
+      } else {
+        patch.redTotalMs = null
+        patch.blackTotalMs = null
+      }
+      if (status !== 'playing') {
+        patch.turnStartedAt = null
+        patch.endReason = msg.endReason ?? null
+      } else {
+        patch.endReason = null
+        if (hasClock(tc) && (adopt || (incomingLen === myLen && !diverged))) {
+          patch.turnStartedAt = Date.now() - elapsed
+        }
+      }
+      this.update(patch)
+    }
+    this.maybeStartClock()
   }
 
   private onUndoRequest(msg: Extract<WireMsg, { t: 'undo-req' }>): void {
@@ -643,6 +848,7 @@ export class SessionController {
   private onDrawResponse(msg: Extract<WireMsg, { t: 'draw-res' }>): void {
     if (msg.to && msg.to !== this.state.clientId) return
     if (msg.accept) {
+      this.update({ endReason: 'draw' })
       this.setGame({ ...this.state.game, status: 'draw' })
       this.notify('双方同意和棋')
     } else {
@@ -655,8 +861,20 @@ export class SessionController {
     const senderSeat = this.state.seatMap[msg.from]
     if (!senderSeat) return
     const status: GameStatus = senderSeat === 'red' ? 'black_wins' : 'red_wins'
+    this.update({ endReason: 'resign' })
     this.setGame({ ...this.state.game, status })
     this.notify('对方认输，你赢了')
+  }
+
+  private onTimeout(msg: Extract<WireMsg, { t: 'timeout' }>): void {
+    if (this.state.game.status !== 'playing') return
+    if (msg.moveNo !== this.state.game.moves.length) return
+    // 只接受“当前行棋方超时”的声明，任意已就座玩家都可广播同一结果。
+    if (msg.seat !== this.state.game.turn) return
+    if (!this.state.seatMap[msg.from]) return
+    this.update({ endReason: 'timeout' })
+    this.setGame({ ...this.state.game, status: statusForTimeout(msg.seat) })
+    this.notify(this.state.seat === msg.seat ? '你超时了' : '对方超时，你赢了')
   }
 
   private onRematchRequest(msg: Extract<WireMsg, { t: 'rematch-req' }>): void {
@@ -683,6 +901,7 @@ export class SessionController {
       // 防止迟到的响应把已经重新开始的对局再次清空。
       if (this.state.game.status !== 'playing') {
         this.setGame(createGame())
+        this.resetClocks()
         this.notify('新的一局开始')
       }
     } else {
@@ -712,6 +931,11 @@ export class SessionController {
   private truncateTo(moveNo: number): void {
     const codes = this.state.game.moves.slice(0, moveNo).map(encodeMove)
     this.setGame(replayGame(codes))
+    // 悔棋后轮到原走子方，本步计时重置（总用时按现状不退还）。
+    if (this.state.game.status === 'playing' && hasClock(this.state.timeControl)) {
+      const now = Date.now()
+      this.update({ turnStartedAt: now, clockNow: now })
+    }
   }
 
   // ------------------------------------------------------------------ actions
@@ -727,6 +951,20 @@ export class SessionController {
       }
     }
 
+    const elapsed = this.state.turnStartedAt != null ? Date.now() - this.state.turnStartedAt : 0
+    if (hasClock(this.state.timeControl) && this.state.turnStartedAt != null) {
+      const evaluation = evaluateClock(
+        this.state.timeControl.perMoveMs,
+        this.state.timeControl.totalMs,
+        this.activeTotalMs(),
+        elapsed,
+      )
+      if (evaluation.expiredBy) {
+        this.handleTimeout(this.state.game.turn, evaluation.expiredBy)
+        return { ok: false, reason: '超时判负' }
+      }
+    }
+
     let next: GameState
     try {
       next = applyMove(this.state.game, { from, to })
@@ -734,10 +972,12 @@ export class SessionController {
       return { ok: false, reason: '这步棋不能走' }
     }
 
+    const mover = this.state.game.turn
     const moveNo = this.state.game.moves.length
+    const clockMs = this.applyClockAfterMove(mover, elapsed)
     this.setGame(next)
     if (this.mode === 'online') {
-      this.send({ t: 'move', move: encodeMove({ from, to }), moveNo })
+      this.send({ t: 'move', move: encodeMove({ from, to }), moveNo, clockMs })
       if (this.state.pending && !this.state.pending.incoming) this.clearPending()
     }
     return { ok: true }
@@ -803,6 +1043,7 @@ export class SessionController {
     }
 
     if (pending.kind === 'draw') {
+      this.update({ endReason: 'draw' })
       this.setGame({ ...this.state.game, status: 'draw' })
       this.send({ t: 'draw-res', to: pending.from, accept: true })
       this.clearPending()
@@ -813,6 +1054,7 @@ export class SessionController {
     if (pending.kind === 'rematch') {
       if (this.state.game.status !== 'playing') {
         this.setGame(createGame())
+        this.resetClocks()
         this.notify('新的一局开始')
       }
       this.send({ t: 'rematch-res', to: pending.from, accept: true })
@@ -874,6 +1116,7 @@ export class SessionController {
       return
     }
     const status: GameStatus = this.state.seat === 'red' ? 'black_wins' : 'red_wins'
+    this.update({ endReason: 'resign' })
     this.setGame({ ...this.state.game, status })
     this.send({ t: 'resign' })
     this.notify('你认输了')
@@ -886,6 +1129,7 @@ export class SessionController {
     }
     if (this.mode === 'local') {
       this.setGame(createGame())
+      this.resetClocks()
       return
     }
     if (!this.state.seat) return

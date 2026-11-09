@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { applyMove, createGame, legalMovesFor } from '../game/engine'
 import { moveToChinese } from '../game/notation'
 import type { Color, GameState, Square } from '../game/types'
+import { formatClock, hasClock } from '../net/clock'
 import { inviteLink } from '../net/room'
 import type { ChatMessage, SessionController, SessionState } from '../net/session'
 import { Board } from './Board'
@@ -50,20 +51,76 @@ function seatOwner(
 
 function resultText(state: SessionState): { title: string; detail: string } {
   const status = state.game.status
-  if (status === 'draw') return { title: '和棋', detail: '双方同意和棋' }
-  if (status === 'red_wins') {
+  if (status === 'draw') {
     return {
-      title: state.mode === 'online' && state.seat ? (state.seat === 'red' ? '你赢了' : '你输了') : '红方胜',
-      detail: '红方获胜',
+      title: '和棋',
+      detail: state.endReason === 'draw' ? '双方同意和棋' : '三次重复局面，判和',
     }
   }
-  if (status === 'black_wins') {
-    return {
-      title: state.mode === 'online' && state.seat ? (state.seat === 'black' ? '你赢了' : '你输了') : '黑方胜',
-      detail: '黑方获胜',
+  if (status === 'red_wins' || status === 'black_wins') {
+    const winner: Color = status === 'red_wins' ? 'red' : 'black'
+    let detail = winner === 'red' ? '红方获胜' : '黑方获胜'
+    if (state.endReason === 'timeout') {
+      detail = winner === 'red' ? '黑方超时，红方胜' : '红方超时，黑方胜'
     }
+    let title: string
+    if (state.mode === 'online' && state.seat) {
+      if (state.endReason === 'timeout') {
+        title = state.seat === winner ? '对方超时，你赢了' : '你超时了'
+      } else {
+        title = state.seat === winner ? '你赢了' : '你输了'
+      }
+    } else {
+      title = winner === 'red' ? '红方胜' : '黑方胜'
+    }
+    return { title, detail }
   }
   return { title: '', detail: '' }
+}
+
+function ClockBar({ state }: { state: SessionState }) {
+  const tc = state.timeControl
+  if (!hasClock(tc) || state.game.status !== 'playing') return null
+  const now = state.clockNow || Date.now()
+  const startedAt = state.turnStartedAt
+  const elapsed = startedAt != null ? Math.max(0, now - startedAt) : 0
+  const active = state.game.turn
+  const red =
+    state.redTotalMs != null
+      ? Math.max(0, state.redTotalMs - (active === 'red' ? elapsed : 0))
+      : null
+  const black =
+    state.blackTotalMs != null
+      ? Math.max(0, state.blackTotalMs - (active === 'black' ? elapsed : 0))
+      : null
+  const perMove = tc.perMoveMs != null ? Math.max(0, tc.perMoveMs - elapsed) : null
+  const level = (ms: number | null) =>
+    ms == null ? '' : ms <= 10_000 ? ' is-danger' : ms <= 30_000 ? ' is-warning' : ''
+  const display = (ms: number | null) =>
+    startedAt == null || ms == null ? '--:--' : formatClock(ms)
+
+  return (
+    <div className="clock-bar" role="status">
+      {red != null && (
+        <span className={`clock-side red${active === 'red' ? ' is-active' : ''}${level(red)}`}>
+          <span className="clock-side-name">红方</span>
+          <span className="clock-side-time">{display(red)}</span>
+        </span>
+      )}
+      {perMove != null && (
+        <span className={`clock-move${level(perMove)}`}>
+          <span className="clock-move-label">本步</span>
+          <span className="clock-move-time">{display(perMove)}</span>
+        </span>
+      )}
+      {black != null && (
+        <span className={`clock-side black${active === 'black' ? ' is-active' : ''}${level(black)}`}>
+          <span className="clock-side-name">黑方</span>
+          <span className="clock-side-time">{display(black)}</span>
+        </span>
+      )}
+    </div>
+  )
 }
 
 function StatusLine({ state }: { state: SessionState }) {
@@ -326,6 +383,7 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
 
       <main className="game-body">
         <section className="board-column">
+          <ClockBar state={state} />
           {lastMove && (
             <div className={`last-move-cue${lastMoveIsOpponent ? ' is-opponent' : ''}`}>
               <span className="last-move-cue-label">

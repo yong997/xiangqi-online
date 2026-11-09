@@ -1,10 +1,18 @@
 import { useState } from 'react'
+import {
+  msToMinutes,
+  PER_MOVE_PRESETS_MIN,
+  TOTAL_PRESETS_MIN,
+  type TimeControl,
+} from '../net/clock'
 import { normalizeRoomCode } from '../net/room'
 import { hasGoEasyConfig } from '../net/transport'
 
 interface LobbyProps {
   name: string
   onNameChange: (name: string) => void
+  timeControl: TimeControl
+  onTimeControlChange: (value: TimeControl) => void
   onCreate: () => void
   onJoin: (room: string) => void
   onLocal: () => void
@@ -20,7 +28,81 @@ const DEMO_PIECES = [
   { label: '卒', color: 'black' },
 ]
 
-export function Lobby({ name, onNameChange, onCreate, onJoin, onLocal }: LobbyProps) {
+function TimeLimitPicker({
+  label,
+  valueMs,
+  presets,
+  onChange,
+}: {
+  label: string
+  valueMs: number | null
+  presets: number[]
+  onChange: (ms: number | null) => void
+}) {
+  const activeMinutes = msToMinutes(valueMs)
+  const isCustom = activeMinutes != null && !presets.includes(activeMinutes)
+  const [customText, setCustomText] = useState(isCustom ? String(activeMinutes) : '')
+
+  return (
+    <div className="tc-row">
+      <span className="tc-label">{label}</span>
+      <div className="tc-options">
+        <button
+          type="button"
+          className={`tc-chip${valueMs == null ? ' is-on' : ''}`}
+          onClick={() => {
+            setCustomText('')
+            onChange(null)
+          }}
+        >
+          不限
+        </button>
+        {presets.map((minutes) => (
+          <button
+            key={minutes}
+            type="button"
+            className={`tc-chip${activeMinutes === minutes ? ' is-on' : ''}`}
+            onClick={() => {
+              setCustomText('')
+              onChange(minutes * 60_000)
+            }}
+          >
+            {minutes} 分
+          </button>
+        ))}
+        <span className={`tc-custom${isCustom ? ' is-on' : ''}`}>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={60}
+            placeholder="自定义"
+            value={customText}
+            onChange={(event) => {
+              const text = event.target.value
+              setCustomText(text)
+              const minutes = Number(text)
+              if (Number.isFinite(minutes) && minutes >= 1 && minutes <= 60) {
+                onChange(Math.round(minutes * 60_000))
+              }
+            }}
+          />
+          <span className="tc-custom-unit">分</span>
+        </span>
+      </div>
+    </div>
+  )
+}
+
+export function Lobby({
+  name,
+  onNameChange,
+  timeControl,
+  onTimeControlChange,
+  onCreate,
+  onJoin,
+  onLocal,
+}: LobbyProps) {
   const [roomInput, setRoomInput] = useState('')
   const room = normalizeRoomCode(roomInput)
   const configured = hasGoEasyConfig()
@@ -57,6 +139,23 @@ export function Lobby({ name, onNameChange, onCreate, onJoin, onLocal }: LobbyPr
             onChange={(event) => onNameChange(event.target.value)}
           />
         </label>
+
+        <div className="time-control">
+          <div className="time-control-title">对局时限（可选 · 房主设置）</div>
+          <TimeLimitPicker
+            label="每步限时"
+            valueMs={timeControl.perMoveMs}
+            presets={PER_MOVE_PRESETS_MIN}
+            onChange={(ms) => onTimeControlChange({ ...timeControl, perMoveMs: ms })}
+          />
+          <TimeLimitPicker
+            label="每人总用时"
+            valueMs={timeControl.totalMs}
+            presets={TOTAL_PRESETS_MIN}
+            onChange={(ms) => onTimeControlChange({ ...timeControl, totalMs: ms })}
+          />
+          <p className="time-control-hint">都不选 = 不限时；任意一项到时即判当前行棋方负。</p>
+        </div>
 
         <button type="button" className="btn btn-primary btn-block" onClick={onCreate}>
           创建房间

@@ -1,5 +1,7 @@
 import type { GameStatus } from '../game/types'
-import type { Seat } from './types'
+import type { TimeControl } from './clock'
+import { TIME_CONTROL_OFF } from './clock'
+import type { EndReason, Seat } from './types'
 
 const CLIENT_ID_KEY = 'xq:clientId'
 const NAME_KEY = 'xq:name'
@@ -17,6 +19,11 @@ export interface SavedSession {
   moves: number[]
   status: GameStatus
   updatedAt: number
+  timeControl: TimeControl
+  redTotalMs: number | null
+  blackTotalMs: number | null
+  turnStartedAt: number | null
+  endReason: EndReason | null
 }
 
 let memoryClientId: string | null = null
@@ -66,6 +73,23 @@ export function saveName(name: string): void {
   }
 }
 
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function parseTimeControl(value: unknown): TimeControl {
+  if (!value || typeof value !== 'object') return TIME_CONTROL_OFF
+  const raw = value as Partial<TimeControl>
+  const perMoveMs = numberOrNull(raw.perMoveMs)
+  const totalMs = numberOrNull(raw.totalMs)
+  if (perMoveMs == null && totalMs == null) return TIME_CONTROL_OFF
+  return { perMoveMs, totalMs }
+}
+
+function parseEndReason(value: unknown): EndReason | null {
+  return value === 'timeout' || value === 'resign' || value === 'draw' ? value : null
+}
+
 export function loadSavedSession(room: string, clientId: string): SavedSession | null {
   try {
     const raw = localStorage.getItem(sessionKey(room, clientId))
@@ -79,6 +103,11 @@ export function loadSavedSession(room: string, clientId: string): SavedSession |
       moves: parsed.moves.filter((n): n is number => typeof n === 'number'),
       status: parsed.status ?? 'playing',
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+      timeControl: parseTimeControl(parsed.timeControl),
+      redTotalMs: numberOrNull(parsed.redTotalMs),
+      blackTotalMs: numberOrNull(parsed.blackTotalMs),
+      turnStartedAt: numberOrNull(parsed.turnStartedAt),
+      endReason: parseEndReason(parsed.endReason),
     }
   } catch {
     return null

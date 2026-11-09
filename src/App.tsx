@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import { TIME_CONTROL_OFF, type TimeControl } from './net/clock'
 import { generateRoomCode, joinRoomHash, parseHash, type Route } from './net/room'
 import { SessionController } from './net/session'
 import { getClientId, loadName, saveName } from './net/storage'
@@ -10,10 +11,11 @@ interface GameRouteProps {
   room: string
   intent: 'create' | 'join'
   name: string
+  timeControl?: TimeControl
   onLeave: () => void
 }
 
-function GameRoute({ mode, room, intent, name, onLeave }: GameRouteProps) {
+function GameRoute({ mode, room, intent, name, timeControl, onLeave }: GameRouteProps) {
   const [session] = useState(
     () =>
       new SessionController({
@@ -22,6 +24,7 @@ function GameRoute({ mode, room, intent, name, onLeave }: GameRouteProps) {
         intent,
         clientId: getClientId(),
         name: name || '玩家',
+        timeControl,
       }),
   )
 
@@ -42,6 +45,7 @@ function GameRoute({ mode, room, intent, name, onLeave }: GameRouteProps) {
 export default function App() {
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash))
   const [name, setName] = useState(() => loadName())
+  const [timeControl, setTimeControl] = useState<TimeControl>(TIME_CONTROL_OFF)
 
   useEffect(() => {
     const onHashChange = () => setRoute(parseHash(window.location.hash))
@@ -77,6 +81,7 @@ export default function App() {
         room="LOCAL"
         intent="create"
         name={name}
+        timeControl={timeControl}
         onLeave={goHome}
       />
     )
@@ -90,6 +95,7 @@ export default function App() {
         room={route.room}
         intent={route.intent}
         name={name}
+        timeControl={route.intent === 'create' ? timeControl : undefined}
         onLeave={goHome}
       />
     )
@@ -99,6 +105,8 @@ export default function App() {
     <Lobby
       name={name}
       onNameChange={updateName}
+      timeControl={timeControl}
+      onTimeControlChange={setTimeControl}
       onCreate={createRoom}
       onJoin={joinRoom}
       onLocal={() => {
