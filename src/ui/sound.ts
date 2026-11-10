@@ -7,7 +7,7 @@
 
 const STORAGE_KEY = 'xq:sound'
 
-type SfxName = 'move' | 'check'
+type SfxName = 'move' | 'check' | 'checkmate'
 
 let audioCtx: AudioContext | null = null
 let enabled = true
@@ -81,6 +81,14 @@ function tone(freq: number, duration: number, options: ToneOptions = {}): void {
   osc.stop(start + duration + 0.03)
 }
 
+function playCheckmateSound(): void {
+  // 绝杀：低音冲击 + 高频余韵
+  tone(150, 0.5, { type: 'sine', gain: 0.24, glideTo: 55 })
+  tone(230, 0.38, { type: 'triangle', gain: 0.16, when: 0.02, glideTo: 110 })
+  tone(932.33, 0.3, { type: 'triangle', gain: 0.1, when: 0.04 })
+  tone(1396.91, 0.35, { type: 'sine', gain: 0.08, when: 0.16 })
+}
+
 function playMoveSound(): void {
   // 木质感“嗒”声：高频短音 + 低一档的余音
   tone(720, 0.09, { type: 'triangle', gain: 0.13 })
@@ -95,8 +103,7 @@ function playCheckSound(): void {
   tone(1567.98, 0.22, { type: 'sine', gain: 0.1, when: 0.32 })
 }
 
-/** 用系统中文语音朗读“将军”；不可用时返回 false 以回退到提示音。 */
-function speakCheck(): boolean {
+/** 用系统中文语音朗读“将军”；不可用时返回 false 以回退到提示音。 */function speakCheck(): boolean {
   if (typeof window === 'undefined') return false
   const synth = window.speechSynthesis
   const Utterance = window.SpeechSynthesisUtterance
@@ -126,7 +133,8 @@ function speakCheck(): boolean {
 export function playSfx(name: SfxName): void {
   if (!enabled) return
   if (name === 'move') playMoveSound()
-  else playCheckSound()
+  else if (name === 'check') playCheckSound()
+  else playCheckmateSound()
 }
 
 export function isSoundEnabled(): boolean {

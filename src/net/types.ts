@@ -3,8 +3,14 @@ import type { TimeControl } from './clock'
 
 export type Seat = 'red' | 'black'
 
-/** 对局结束原因，用于结果文案区分超时/认输/和棋。 */
-export type EndReason = 'timeout' | 'resign' | 'draw'
+/** 对局结束原因，用于结果文案区分超时/认输/和棋/将死/困毙。 */
+export type EndReason =
+  | 'timeout'
+  | 'resign'
+  | 'draw'
+  | 'natural_draw'
+  | 'checkmate'
+  | 'stalemate'
 
 export type TransportKind = 'goeasy' | 'local'
 export type TransportStatus = 'connecting' | 'connected' | 'disconnected'

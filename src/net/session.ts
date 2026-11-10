@@ -7,8 +7,9 @@ import {
   replayGame,
   toFenOf,
 } from '../game/engine'
-import { applyJieqiMove, createJieqiGame, jieqiPositionKey, replayJieqi } from '../game/jieqi'
+import { applyJieqiMove, createJieqiGame, jieqiIsInCheck, jieqiPositionKey, replayJieqi } from '../game/jieqi'
 import type { GameState, GameStatus, GameVariant } from '../game/types'
+import { isInCheck } from '../game/rules'
 import {
   accumulatedElapsed,
   evaluateClock,
@@ -384,6 +385,18 @@ export class SessionController {
 
   private gameKey(game: GameState): string {
     return this.state.variant === 'jieqi' ? jieqiPositionKey(game.board, game.turn) : toFenOf(game)
+  }
+
+  /** 判断一步棋结束后是「将死」「困毙」还是「和棋」。 */
+  private moveEndReason(prevStatus: GameStatus, next: GameState): EndReason | null {
+    if (prevStatus !== 'playing' || next.status === 'playing') return null
+    if (next.status === 'draw') return 'natural_draw'
+    const loser = next.turn
+    const inCheck =
+      this.state.variant === 'jieqi'
+        ? jieqiIsInCheck(next.board, loser)
+        : isInCheck(next.board, loser)
+    return inCheck ? 'checkmate' : 'stalemate'
   }
 
   // ------------------------------------------------------------------- clocks
@@ -793,7 +806,10 @@ export class SessionController {
     }
 
     try {
+      const prevStatus = this.state.game.status
       const next = this.applyGameMove(this.state.game, decodeMove(msg.move))
+      const endReason = this.moveEndReason(prevStatus, next)
+      if (endReason) this.update({ endReason })
       this.setGame(next)
       if (hasClock(this.state.timeControl)) {
         const now = Date.now()
@@ -1156,6 +1172,8 @@ export class SessionController {
     const mover = this.state.game.turn
     const moveNo = this.state.game.moves.length
     const clockMs = this.applyClockAfterMove(mover, elapsed)
+    const endReason = this.moveEndReason(this.state.game.status, next)
+    if (endReason) this.update({ endReason })
     this.setGame(next)
     if (this.mode === 'online') {
       this.send({ t: 'move', move: encodeMove({ from, to }), moveNo, clockMs })

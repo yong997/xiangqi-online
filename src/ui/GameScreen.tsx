@@ -64,7 +64,12 @@ function resultText(state: SessionState): { title: string; detail: string } {
   if (status === 'draw') {
     return {
       title: '和棋',
-      detail: state.endReason === 'draw' ? '双方同意和棋' : '三次重复局面，判和',
+      detail:
+        state.endReason === 'draw'
+          ? '双方同意和棋'
+          : state.endReason === 'natural_draw'
+            ? '三次重复或 60 回合无吃子，判和'
+            : '和棋',
     }
   }
   if (status === 'red_wins' || status === 'black_wins') {
@@ -72,14 +77,26 @@ function resultText(state: SessionState): { title: string; detail: string } {
     let detail = winner === 'red' ? '红方获胜' : '黑方获胜'
     if (state.endReason === 'timeout') {
       detail = winner === 'red' ? '黑方超时，红方胜' : '红方超时，黑方胜'
+    } else if (state.endReason === 'checkmate') {
+      detail = winner === 'red' ? '红方将死黑方' : '黑方将死红方'
+    } else if (state.endReason === 'stalemate') {
+      detail = winner === 'red' ? '黑方困毙，红方胜' : '红方困毙，黑方胜'
     }
     let title: string
     if (state.mode === 'online' && state.seat) {
       if (state.endReason === 'timeout') {
         title = state.seat === winner ? '对方超时，你赢了' : '你超时了'
+      } else if (state.endReason === 'checkmate') {
+        title = state.seat === winner ? '绝杀！你赢了' : '被将死，你输了'
+      } else if (state.endReason === 'stalemate') {
+        title = state.seat === winner ? '对方困毙，你赢了' : '你被困毙了'
       } else {
         title = state.seat === winner ? '你赢了' : '你输了'
       }
+    } else if (state.endReason === 'checkmate') {
+      title = winner === 'red' ? '红方绝杀' : '黑方绝杀'
+    } else if (state.endReason === 'stalemate') {
+      title = winner === 'red' ? '红方胜（困毙）' : '黑方胜（困毙）'
     } else {
       title = winner === 'red' ? '红方胜' : '黑方胜'
     }
@@ -224,10 +241,12 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
   const [chatOpen, setChatOpen] = useState(false)
   const [confirmResign, setConfirmResign] = useState(false)
   const [resultDismissed, setResultDismissed] = useState(false)
+  const [checkmateFx, setCheckmateFx] = useState(false)
   const [chatPing, setChatPing] = useState<ChatMessage | null>(null)
   const [unread, setUnread] = useState(0)
   const seenIncomingRef = useRef<Set<string>>(new Set())
   const prevMoveCountRef = useRef(game.moves.length)
+  const prevStatusRef = useRef(game.status)
 
   useEffect(() => {
     if (state.seat) setViewColor(state.seat)
@@ -258,6 +277,20 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
     }
     return undefined
   }, [game.moves.length, game.board, game.turn, game.status, state.variant])
+
+  // 将死（绝杀）时播放全屏庆祝特效 + 冲击音效。
+  useEffect(() => {
+    const prev = prevStatusRef.current
+    prevStatusRef.current = game.status
+    if (prev === 'playing' && game.status !== 'playing' && state.endReason === 'checkmate') {
+      setCheckmateFx(true)
+      playSfx('checkmate')
+      const timer = window.setTimeout(() => setCheckmateFx(false), 2300)
+      return () => window.clearTimeout(timer)
+    }
+    if (game.status === 'playing') setCheckmateFx(false)
+    return undefined
+  }, [game.status, state.endReason])
 
   // 收到对方的新聊天消息时，在棋盘上弹出一条浮层提醒；聊天面板打开时不再打扰。
   useEffect(() => {
@@ -596,6 +629,15 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
         <button type="button" className="toast" onClick={() => session.dismissNotice()}>
           {state.notice}
         </button>
+      )}
+
+      {checkmateFx && (
+        <div className="checkmate-fx" aria-hidden="true">
+          <div className="checkmate-flash" />
+          <div className="checkmate-rays" />
+          <div className="checkmate-title">绝杀</div>
+          <div className="checkmate-subtitle">将 死</div>
+        </div>
       )}
 
       {pendingIncoming && (

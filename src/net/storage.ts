@@ -91,7 +91,14 @@ function parseTimeControl(value: unknown): TimeControl {
 }
 
 function parseEndReason(value: unknown): EndReason | null {
-  return value === 'timeout' || value === 'resign' || value === 'draw' ? value : null
+  return value === 'timeout' ||
+    value === 'resign' ||
+    value === 'draw' ||
+    value === 'natural_draw' ||
+    value === 'checkmate' ||
+    value === 'stalemate'
+    ? value
+    : null
 }
 
 export function loadSavedSession(room: string, clientId: string): SavedSession | null {
