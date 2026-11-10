@@ -153,6 +153,116 @@ function ClockBar({ state }: { state: SessionState }) {
   )
 }
 
+function AnalysisBoard({ state, onClose }: { state: SessionState; onClose: () => void }) {
+  const [initial] = useState<GameState>(() => state.game)
+  const [history, setHistory] = useState<GameState[]>(() => [initial])
+  const [selected, setSelected] = useState<Square | null>(null)
+  const [viewColor, setViewColor] = useState<Color>(
+    state.mode === 'online' && state.seat ? state.seat : 'red',
+  )
+  const current = history[history.length - 1]
+  const legal = useMemo(
+    () =>
+      selected === null
+        ? []
+        : state.variant === 'jieqi'
+          ? jieqiLegalMovesFrom(current, selected)
+          : legalMovesFor(current, selected),
+    [current, selected, state.variant],
+  )
+
+  const handleSelect = (square: Square) => {
+    if (square < 0) {
+      setSelected(null)
+      return
+    }
+    if (selected !== null && legal.includes(square)) {
+      try {
+        const next =
+          state.variant === 'jieqi'
+            ? applyJieqiMove(current, { from: selected, to: square })
+            : applyMove(current, { from: selected, to: square })
+        setHistory((items) => [...items, next])
+        setSelected(null)
+      } catch {
+        // 非法着法忽略
+      }
+      return
+    }
+    const piece = current.board[square]
+    setSelected(piece && piece.color === current.turn ? square : null)
+  }
+
+  const stepBack = () => {
+    if (history.length <= 1) return
+    setHistory((items) => items.slice(0, -1))
+    setSelected(null)
+  }
+  const reset = () => {
+    setHistory([initial])
+    setSelected(null)
+  }
+  const syncCurrent = () => {
+    setHistory([state.game])
+    setSelected(null)
+  }
+
+  return (
+    <div className="analysis-overlay" role="dialog" aria-label="推演棋局">
+      <header className="analysis-header">
+        <div className="analysis-title">
+          推演棋局
+          <small>不影响真实对局 · 双方可试走</small>
+        </div>
+        <ClockBar state={state} />
+        <button type="button" className="icon-btn analysis-close" onClick={onClose} aria-label="关闭推演">
+          ×
+        </button>
+      </header>
+
+      <div className="analysis-body">
+        <div className="analysis-board">
+          <Board
+            game={current}
+            variant={state.variant}
+            viewColor={viewColor}
+            selected={selected}
+            legal={legal}
+            interactive
+            onSelect={handleSelect}
+          />
+        </div>
+
+        <div className="analysis-actions">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={stepBack} disabled={history.length <= 1}>
+            悔一步
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={reset} disabled={history.length <= 1}>
+            重置
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={syncCurrent}>
+            同步当前
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setViewColor((color) => (color === 'red' ? 'black' : 'red'))}
+          >
+            翻转
+          </button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={onClose}>
+            退出推演
+          </button>
+        </div>
+
+        <p className="analysis-hint">
+          推演仅在本机模拟，不会发送给对方；真实对局与倒计时仍在继续（当前推演 {history.length - 1} 步）。
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function StatusLine({ state }: { state: SessionState }) {
   const game = state.game
   if (game.status !== 'playing') {
@@ -242,6 +352,7 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
   const [confirmResign, setConfirmResign] = useState(false)
   const [resultDismissed, setResultDismissed] = useState(false)
   const [checkmateFx, setCheckmateFx] = useState(false)
+  const [analysisOpen, setAnalysisOpen] = useState(false)
   const [chatPing, setChatPing] = useState<ChatMessage | null>(null)
   const [unread, setUnread] = useState(0)
   const seenIncomingRef = useRef<Set<string>>(new Set())
@@ -513,6 +624,13 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
             <button
               type="button"
               className="btn btn-secondary btn-sm"
+              onClick={() => setAnalysisOpen(true)}
+            >
+              推演
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
               onClick={() => session.requestUndo()}
               disabled={undoDisabled}
             >
@@ -550,6 +668,13 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
           </section>
 
           <section className="panel actions-panel">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setAnalysisOpen(true)}
+            >
+              推演
+            </button>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -639,6 +764,10 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
           <div className="checkmate-title">绝杀</div>
           <div className="checkmate-subtitle">将 死</div>
         </div>
+      )}
+
+      {analysisOpen && (
+        <AnalysisBoard state={state} onClose={() => setAnalysisOpen(false)} />
       )}
 
       {pendingIncoming && (

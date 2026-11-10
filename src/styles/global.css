@@ -1474,6 +1474,100 @@ input::placeholder {
   display: none;
 }
 
+/* --------------------------------------------------------------- analysis */
+
+.analysis-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: rgba(8, 12, 17, 0.94);
+  backdrop-filter: blur(6px);
+}
+
+.analysis-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 10px clamp(12px, 3vw, 24px) 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10, 14, 19, 0.97);
+  backdrop-filter: blur(10px);
+}
+
+.analysis-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+
+.analysis-title small {
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.analysis-header .clock-bar {
+  flex: 1 1 260px;
+  max-width: none;
+  justify-content: flex-start;
+}
+
+.analysis-close {
+  flex: none;
+  margin-left: auto;
+}
+
+.analysis-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 16px 12px calc(20px + env(safe-area-inset-bottom));
+}
+
+.analysis-board {
+  width: 100%;
+  max-width: 620px;
+}
+
+.analysis-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 620px;
+}
+
+.analysis-actions .btn {
+  flex: 1 1 100px;
+}
+
+.analysis-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
 /* ---------------------------------------------------------- checkmate fx */
 
 .checkmate-fx {
