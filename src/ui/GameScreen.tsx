@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { applyMove, createGame, legalMovesFor } from '../game/engine'
 import { moveToChinese } from '../game/notation'
+import { isInCheck } from '../game/rules'
 import type { Color, GameState, Square } from '../game/types'
 import { formatClock, hasClock } from '../net/clock'
 import { inviteLink } from '../net/room'
@@ -8,6 +9,7 @@ import type { ChatMessage, SessionController, SessionState } from '../net/sessio
 import { Board } from './Board'
 import { ChatPanel } from './ChatPanel'
 import { Modal } from './Modal'
+import { playSfx } from './sound'
 
 interface GameScreenProps {
   session: SessionController
@@ -212,6 +214,7 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
   const [chatPing, setChatPing] = useState<ChatMessage | null>(null)
   const [unread, setUnread] = useState(0)
   const seenIncomingRef = useRef<Set<string>>(new Set())
+  const prevMoveCountRef = useRef(game.moves.length)
 
   useEffect(() => {
     if (state.seat) setViewColor(state.seat)
@@ -224,6 +227,20 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
   useEffect(() => {
     if (game.status === 'playing') setResultDismissed(false)
   }, [game.status])
+
+  // 每走一步播放落子音效；若走完后对方被将军，再叠加将军提示音。
+  useEffect(() => {
+    const prev = prevMoveCountRef.current
+    const count = game.moves.length
+    prevMoveCountRef.current = count
+    if (count <= prev) return
+    playSfx('move')
+    if (isInCheck(game.board, game.turn)) {
+      const timer = window.setTimeout(() => playSfx('check'), 180)
+      return () => window.clearTimeout(timer)
+    }
+    return undefined
+  }, [game.moves.length, game.board, game.turn, game.status])
 
   // 收到对方的新聊天消息时，在棋盘上弹出一条浮层提醒；聊天面板打开时不再打扰。
   useEffect(() => {
