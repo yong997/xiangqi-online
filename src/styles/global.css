@@ -1003,33 +1003,39 @@ input::placeholder {
   }
 }
 
-.last-move-mark {
+.last-move-from-ring {
+  fill: none;
+  stroke: rgba(34, 211, 238, 0.85);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.6));
   pointer-events: none;
 }
 
-.last-move-mark.is-from {
-  fill: rgba(59, 130, 246, 0.32);
-  stroke: rgba(96, 165, 250, 0.98);
-  stroke-width: 3;
-  stroke-dasharray: 10 7;
-}
-
-.last-move-mark.is-to {
-  fill: rgba(34, 211, 238, 0.42);
+.last-move-from-dot {
+  fill: #f2feff;
   stroke: #22d3ee;
-  stroke-width: 3.5;
-  filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.85));
-  animation: lastMoveFlash 1.1s ease-out;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.9));
+  pointer-events: none;
 }
 
-@keyframes lastMoveFlash {
+.last-move-to-ring {
+  fill: none;
+  stroke: #22d3ee;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 9px rgba(34, 211, 238, 0.95));
+  animation: lastMoveRingFlash 1s ease-out;
+  pointer-events: none;
+}
+
+@keyframes lastMoveRingFlash {
   0% {
-    fill: rgba(34, 211, 238, 0.75);
-    stroke-width: 6;
+    stroke-width: 7;
+    opacity: 0.5;
   }
   100% {
-    fill: rgba(34, 211, 238, 0.42);
-    stroke-width: 3.5;
+    stroke-width: 4;
+    opacity: 1;
   }
 }
 

@@ -245,21 +245,20 @@ export function Board({
         })}
 
         {lastMove && (
-          <g className="last-move" aria-hidden="true">
-            {[lastMove.from, lastMove.to].map((square, index) => {
-              const { x, y } = displayPosition(square, viewColor)
+          <g key={`last-${game.moves.length}`} className="last-move" aria-hidden="true">
+            {(() => {
+              const from = displayPosition(lastMove.from, viewColor)
+              const to = displayPosition(lastMove.to, viewColor)
               return (
-                <rect
-                  key={`last-${index}-${game.moves.length}`}
-                  x={x - 42}
-                  y={y - 42}
-                  width={84}
-                  height={84}
-                  rx={14}
-                  className={`last-move-mark ${index === 0 ? 'is-from' : 'is-to'}`}
-                />
+                <>
+                  {/* 出发点：一个小圆点 + 外圈小圆 */}
+                  <circle cx={from.x} cy={from.y} r={20} className="last-move-from-ring" />
+                  <circle cx={from.x} cy={from.y} r={7} className="last-move-from-dot" />
+                  {/* 落脚点：棋子外一圈高亮 */}
+                  <circle cx={to.x} cy={to.y} r={52} className="last-move-to-ring" />
+                </>
               )
-            })}
+            })()}
           </g>
         )}
 
