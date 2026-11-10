@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { GameVariant } from '../game/types'
 import {
   msToMinutes,
   PER_MOVE_PRESETS_MIN,
@@ -11,6 +12,8 @@ import { hasGoEasyConfig } from '../net/transport'
 interface LobbyProps {
   name: string
   onNameChange: (name: string) => void
+  variant: GameVariant
+  onVariantChange: (value: GameVariant) => void
   timeControl: TimeControl
   onTimeControlChange: (value: TimeControl) => void
   onCreate: () => void
@@ -97,6 +100,8 @@ function TimeLimitPicker({
 export function Lobby({
   name,
   onNameChange,
+  variant,
+  onVariantChange,
   timeControl,
   onTimeControlChange,
   onCreate,
@@ -139,6 +144,28 @@ export function Lobby({
             onChange={(event) => onNameChange(event.target.value)}
           />
         </label>
+
+        <div className="variant-select">
+          <div className="variant-select-title">玩法</div>
+          <div className="variant-options">
+            <button
+              type="button"
+              className={`variant-chip${variant === 'standard' ? ' is-on' : ''}`}
+              onClick={() => onVariantChange('standard')}
+            >
+              标准象棋
+              <small>常规规则</small>
+            </button>
+            <button
+              type="button"
+              className={`variant-chip${variant === 'jieqi' ? ' is-on' : ''}`}
+              onClick={() => onVariantChange('jieqi')}
+            >
+              揭棋
+              <small>暗子首步按布阵格走，走完翻开</small>
+            </button>
+          </div>
+        </div>
 
         <div className="time-control">
           <div className="time-control-title">对局时限（可选 · 房主设置）</div>

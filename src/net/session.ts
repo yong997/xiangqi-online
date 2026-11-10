@@ -7,7 +7,8 @@ import {
   replayGame,
   toFenOf,
 } from '../game/engine'
-import type { GameState, GameStatus } from '../game/types'
+import { applyJieqiMove, createJieqiGame, jieqiPositionKey, replayJieqi } from '../game/jieqi'
+import type { GameState, GameStatus, GameVariant } from '../game/types'
 import {
   accumulatedElapsed,
   evaluateClock,
@@ -57,6 +58,10 @@ export interface SessionState {
   seatMap: Record<string, Seat>
   nameMap: Record<string, string>
   game: GameState
+  /** 玩法：标准象棋 / 揭棋 */
+  variant: GameVariant
+  /** 揭棋随机布局种子（标准模式无意义） */
+  seed: number
   conn: ConnStatus
   peerOnline: boolean
   chat: ChatMessage[]
@@ -89,6 +94,29 @@ export interface SessionOptions {
   name: string
   intent: 'create' | 'join'
   timeControl?: TimeControl
+  variant?: GameVariant
+  seed?: number
+}
+
+function randomSeed(): number {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const buf = new Uint32Array(1)
+    crypto.getRandomValues(buf)
+    return buf[0] >>> 0
+  }
+  return (Math.random() * 0xffffffff) >>> 0
+}
+
+function createVariantGame(variant: GameVariant, seed: number): GameState {
+  return variant === 'jieqi' ? createJieqiGame(seed) : createGame()
+}
+
+function replayVariant(
+  variant: GameVariant,
+  seed: number,
+  codes: ReadonlyArray<number>,
+): GameState {
+  return variant === 'jieqi' ? replayJieqi(seed, codes) : replayGame(codes)
 }
 
 function randomId(): string {
@@ -129,13 +157,15 @@ export class SessionController {
       options.mode === 'online'
         ? loadSavedSession(options.room, options.clientId)
         : null
-    let game = createGame()
+    const variant: GameVariant = options.variant ?? saved?.variant ?? 'standard'
+    const seed = options.seed ?? saved?.seed ?? randomSeed()
+    let game = createVariantGame(variant, seed)
     if (saved && saved.moves.length > 0) {
       try {
-        game = replayGame(saved.moves)
+        game = replayVariant(variant, seed, saved.moves)
         if (saved.status !== 'playing') game = { ...game, status: saved.status }
       } catch {
-        game = createGame()
+        game = createVariantGame(variant, seed)
       }
     }
 
@@ -177,6 +207,8 @@ export class SessionController {
       seatMap: seat ? { [options.clientId]: seat } : {},
       nameMap: { [options.clientId]: name },
       game,
+      variant,
+      seed,
       conn: options.mode === 'local' ? 'connected' : 'idle',
       peerOnline: false,
       chat: [],
@@ -316,6 +348,8 @@ export class SessionController {
       status: this.state.game.status,
       updatedAt: Date.now(),
       timeControl: this.state.timeControl,
+      variant: this.state.variant,
+      seed: this.state.seed,
       redTotalMs: this.state.redTotalMs,
       blackTotalMs: this.state.blackTotalMs,
       turnStartedAt: null,
@@ -334,6 +368,22 @@ export class SessionController {
     }
     this.update(patch)
     this.persist()
+  }
+
+  private newGame(): GameState {
+    return createVariantGame(this.state.variant, this.state.seed)
+  }
+
+  private applyGameMove(game: GameState, move: Parameters<typeof applyMove>[1]): GameState {
+    return this.state.variant === 'jieqi' ? applyJieqiMove(game, move) : applyMove(game, move)
+  }
+
+  private replayCurrent(codes: ReadonlyArray<number>): GameState {
+    return replayVariant(this.state.variant, this.state.seed, codes)
+  }
+
+  private gameKey(game: GameState): string {
+    return this.state.variant === 'jieqi' ? jieqiPositionKey(game.board, game.turn) : toFenOf(game)
   }
 
   // ------------------------------------------------------------------- clocks
@@ -560,6 +610,8 @@ export class SessionController {
       status: this.state.game.status,
       seatMap: { ...this.state.seatMap },
       nameMap: { ...this.state.nameMap },
+      variant: this.state.variant,
+      seed: this.state.seed,
       timeControl: this.state.timeControl,
       redTotalMs: this.state.redTotalMs,
       blackTotalMs: this.state.blackTotalMs,
@@ -741,7 +793,7 @@ export class SessionController {
     }
 
     try {
-      const next = applyMove(this.state.game, decodeMove(msg.move))
+      const next = this.applyGameMove(this.state.game, decodeMove(msg.move))
       this.setGame(next)
       if (hasClock(this.state.timeControl)) {
         const now = Date.now()
@@ -772,9 +824,14 @@ export class SessionController {
   private onSync(msg: Extract<WireMsg, { t: 'sync' }>): void {
     if (msg.to && msg.to !== this.state.clientId) return
 
+    const incomingVariant: GameVariant = msg.variant ?? this.state.variant
+    const incomingSeed = typeof msg.seed === 'number' ? msg.seed : this.state.seed
+    const senderSeat = msg.seatMap[msg.from] ?? this.state.seatMap[msg.from]
+    const variantAuthoritative = senderSeat === 'red'
+
     let replayed: GameState
     try {
-      replayed = replayGame(msg.moves)
+      replayed = replayVariant(incomingVariant, incomingSeed, msg.moves)
     } catch {
       this.send({ t: 'sync-req', to: msg.from })
       return
@@ -791,17 +848,34 @@ export class SessionController {
     const myLen = this.state.game.moves.length
     const incomingLen = msg.moves.length
     const sameLen = incomingLen === myLen
-    const diverged = sameLen && toFenOf(replayed) !== toFenOf(this.state.game)
+    const incomingKey =
+      incomingVariant === 'jieqi'
+        ? jieqiPositionKey(replayed.board, replayed.turn)
+        : toFenOf(replayed)
+    const diverged =
+      sameLen && (incomingVariant !== this.state.variant || incomingKey !== this.gameKey(this.state.game))
+
+    // 房主（红方）的玩法与揭棋种子是权威来源。
+    const configAdopt =
+      variantAuthoritative &&
+      incomingLen >= myLen &&
+      (incomingVariant !== this.state.variant || incomingSeed !== this.state.seed)
 
     const adopt =
       incomingLen > myLen ||
+      configAdopt ||
       (diverged && msg.from < this.state.clientId) ||
       (sameLen &&
         status !== this.state.game.status &&
         (status !== 'playing' || msg.from < this.state.clientId))
 
     if (adopt) {
-      this.update({ game: incoming })
+      const patch: Partial<SessionState> = { game: incoming }
+      if (configAdopt) {
+        patch.variant = incomingVariant
+        patch.seed = incomingSeed
+      }
+      this.update(patch)
       if (status !== 'playing') this.clearPending()
       else if (this.state.pending && !this.state.pending.incoming && incomingLen !== myLen) {
         this.clearPending()
@@ -998,7 +1072,7 @@ export class SessionController {
     if (msg.accept) {
       // 防止迟到的响应把已经重新开始的对局再次清空。
       if (this.state.game.status !== 'playing') {
-        this.setGame(createGame())
+        this.setGame(this.newGame())
         this.resetClocks()
         this.notify('新的一局开始')
       }
@@ -1028,7 +1102,7 @@ export class SessionController {
 
   private truncateTo(moveNo: number): void {
     const codes = this.state.game.moves.slice(0, moveNo).map(encodeMove)
-    this.setGame(replayGame(codes))
+    this.setGame(this.replayCurrent(codes))
     // 悔棋后轮到原走子方，本步计时重置（总用时按现状不退还）。
     if (this.state.game.status === 'playing' && hasClock(this.state.timeControl)) {
       const now = Date.now()
@@ -1074,7 +1148,7 @@ export class SessionController {
 
     let next: GameState
     try {
-      next = applyMove(this.state.game, { from, to })
+      next = this.applyGameMove(this.state.game, { from, to })
     } catch {
       return { ok: false, reason: '这步棋不能走' }
     }
@@ -1160,7 +1234,7 @@ export class SessionController {
 
     if (pending.kind === 'rematch') {
       if (this.state.game.status !== 'playing') {
-        this.setGame(createGame())
+        this.setGame(this.newGame())
         this.resetClocks()
         this.notify('新的一局开始')
       }
@@ -1235,7 +1309,7 @@ export class SessionController {
       return
     }
     if (this.mode === 'local') {
-      this.setGame(createGame())
+      this.setGame(this.newGame())
       this.resetClocks()
       return
     }

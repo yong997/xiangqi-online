@@ -308,6 +308,55 @@ input::placeholder {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.variant-select {
+  margin: 4px 0 8px;
+}
+
+.variant-select-title {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.variant-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.variant-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.variant-chip small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.variant-chip:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.variant-chip.is-on {
+  border-color: rgba(226, 185, 106, 0.6);
+  background: rgba(226, 185, 106, 0.14);
+  box-shadow: 0 0 0 1px rgba(226, 185, 106, 0.25);
+}
+
 .time-control-title {
   margin-bottom: 10px;
   color: var(--muted);
@@ -913,6 +962,21 @@ input::placeholder {
 
 .piece-black .piece-label {
   fill: #221d18;
+}
+
+.piece-hidden .piece-face {
+  filter: saturate(0.25) brightness(0.94);
+}
+
+.piece-hidden .piece-inner {
+  stroke-dasharray: 5 4;
+  opacity: 0.5;
+}
+
+.piece-hidden .piece-label {
+  fill: rgba(90, 60, 25, 0.55);
+  font-size: 34px;
+  letter-spacing: 0;
 }
 
 .piece-selected-ring {

@@ -1,4 +1,4 @@
-import type { GameStatus } from '../game/types'
+import type { GameStatus, GameVariant } from '../game/types'
 import type { TimeControl } from './clock'
 import { TIME_CONTROL_OFF } from './clock'
 import type { EndReason, Seat } from './types'
@@ -19,6 +19,8 @@ export interface SavedSession {
   moves: number[]
   status: GameStatus
   updatedAt: number
+  variant: GameVariant
+  seed: number
   timeControl: TimeControl
   redTotalMs: number | null
   blackTotalMs: number | null
@@ -105,6 +107,8 @@ export function loadSavedSession(room: string, clientId: string): SavedSession |
       moves: parsed.moves.filter((n): n is number => typeof n === 'number'),
       status: parsed.status ?? 'playing',
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+      variant: parsed.variant === 'jieqi' ? 'jieqi' : 'standard',
+      seed: typeof parsed.seed === 'number' ? parsed.seed : 0,
       timeControl: parseTimeControl(parsed.timeControl),
       redTotalMs: numberOrNull(parsed.redTotalMs),
       blackTotalMs: numberOrNull(parsed.blackTotalMs),

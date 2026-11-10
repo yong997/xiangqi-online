@@ -5,6 +5,8 @@ export const BOARD_SIZE = BOARD_ROWS * BOARD_COLS
 
 export type Color = 'red' | 'black'
 
+export type GameVariant = 'standard' | 'jieqi'
+
 /**
  * 棋子类型（与中国象棋 FEN 通用字母一致）：
  * K 帅/将，A 仕/士，B 相/象，N 马，R 车，C 炮，P 兵/卒。
@@ -14,6 +16,10 @@ export type PieceType = 'K' | 'A' | 'B' | 'N' | 'R' | 'C' | 'P'
 export interface Piece {
   color: Color
   type: PieceType
+  /** 揭棋：是否为未翻开的暗子（此时 type 为所在布阵格的棋子类型） */
+  hidden?: boolean
+  /** 揭棋：暗子的真实身份；翻开后与 type 相同 */
+  trueType?: PieceType
 }
 
 export type Board = ReadonlyArray<Piece | null>
@@ -35,6 +41,8 @@ export interface GameState {
   status: GameStatus
   /** 局面重复计数，key 为 positionKey（棋盘 + 行棋方），用于三次重复判和。 */
   repetition: Readonly<Record<string, number>>
+  /** 揭棋：距上次吃子的步数（用于 120 步无吃子判和）。 */
+  noCapturePlies?: number
 }
 
 export interface Position {

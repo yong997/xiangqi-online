@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import { colOf, findKing, rowOf } from '../game/board'
 import { PIECE_NAMES } from '../game/constants'
+import { jieqiIsInCheck } from '../game/jieqi'
 import { isInCheck } from '../game/rules'
-import type { Board as BoardModel, Color, GameState, Move, Square } from '../game/types'
+import type { Board as BoardModel, Color, GameState, GameVariant, Move, Square } from '../game/types'
 
 const CELL = 100
 const MARGIN = 50
@@ -31,6 +32,7 @@ const PAWN_MARKS: ReadonlyArray<[number, number]> = [
 
 interface BoardProps {
   game: GameState
+  variant: GameVariant
   viewColor: Color
   selected: Square | null
   legal: ReadonlyArray<Square>
@@ -84,10 +86,11 @@ function PieceView({
   interactive: boolean
   onSelect: (square: Square) => void
 }) {
-  const label = PIECE_NAMES[piece.color][piece.type]
+  const hidden = piece.hidden === true
+  const label = hidden ? '棋' : PIECE_NAMES[piece.color][piece.type]
   return (
     <g
-      className={`piece piece-${piece.color}${selected ? ' is-selected' : ''}`}
+      className={`piece piece-${piece.color}${hidden ? ' piece-hidden' : ''}${selected ? ' is-selected' : ''}`}
       onClick={(event) => {
         event.stopPropagation()
         onSelect(square)
@@ -95,29 +98,47 @@ function PieceView({
       style={{ cursor: interactive ? 'pointer' : 'default' }}
       role="button"
       tabIndex={0}
-      aria-label={`${piece.color === 'red' ? '红方' : '黑方'}${label}`}
+      aria-label={`${piece.color === 'red' ? '红方' : '黑方'}${hidden ? '暗子' : label}`}
     >
-      <title>{`${piece.color === 'red' ? '红方' : '黑方'}${label}`}</title>
+      <title>{`${piece.color === 'red' ? '红方' : '黑方'}${hidden ? '暗子' : label}`}</title>
       {selected && <circle cx={x} cy={y} r={48} className="piece-selected-ring" />}
       {checked && <circle cx={x} cy={y} r={50} className="piece-check-ring" />}
       <circle cx={x} cy={y + 4} r={41} className="piece-shadow" />
       <circle cx={x} cy={y} r={41} className={`piece-face piece-face-${piece.color}`} />
       <circle cx={x} cy={y} r={34} className="piece-inner" />
-      <text x={x} y={y} dy="0.35em" textAnchor="middle" className="piece-label">
+      <text
+        x={x}
+        y={y}
+        dy="0.35em"
+        textAnchor="middle"
+        className={`piece-label${hidden ? ' piece-back-label' : ''}`}
+      >
         {label}
       </text>
     </g>
   )
 }
 
-export function Board({ game, viewColor, selected, legal, interactive, onSelect }: BoardProps) {
+export function Board({
+  game,
+  variant,
+  viewColor,
+  selected,
+  legal,
+  interactive,
+  onSelect,
+}: BoardProps) {
   const lastMove: Move | null =
     game.moves.length > 0 ? game.moves[game.moves.length - 1] : null
 
   const checkedKing = useMemo(() => {
-    if (!isInCheck(game.board, game.turn)) return -1
+    const inCheck =
+      variant === 'jieqi'
+        ? jieqiIsInCheck(game.board, game.turn)
+        : isInCheck(game.board, game.turn)
+    if (!inCheck) return -1
     return findKing(game.board, game.turn)
-  }, [game.board, game.turn])
+  }, [game.board, game.turn, variant])
 
   const marks = [...CANNON_MARKS, ...PAWN_MARKS]
 

@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { applyMove, createGame, legalMovesFor } from '../game/engine'
+import {
+  applyJieqiMove,
+  createJieqiGame,
+  jieqiIsInCheck,
+  jieqiLegalMovesFrom,
+  jieqiMoveToChinese,
+} from '../game/jieqi'
 import { moveToChinese } from '../game/notation'
 import { isInCheck } from '../game/rules'
-import type { Color, GameState, Square } from '../game/types'
+import type { Color, GameState, GameVariant, Square } from '../game/types'
 import { formatClock, hasClock } from '../net/clock'
 import { inviteLink } from '../net/room'
 import type { ChatMessage, SessionController, SessionState } from '../net/session'
@@ -23,14 +30,15 @@ interface HistoryItem {
   text: string
 }
 
-function buildHistory(game: GameState): HistoryItem[] {
-  let state = createGame()
+function buildHistory(game: GameState, variant: GameVariant, seed: number): HistoryItem[] {
+  let state = variant === 'jieqi' ? createJieqiGame(seed) : createGame()
   const items: HistoryItem[] = []
   for (const move of game.moves) {
     const color = state.turn
-    const text = moveToChinese(state.board, move)
+    const text =
+      variant === 'jieqi' ? jieqiMoveToChinese(state.board, move) : moveToChinese(state.board, move)
     items.push({ no: items.length + 1, color, text })
-    state = applyMove(state, move)
+    state = variant === 'jieqi' ? applyJieqiMove(state, move) : applyMove(state, move)
   }
   return items
 }
@@ -134,7 +142,9 @@ function StatusLine({ state }: { state: SessionState }) {
     const result = resultText(state)
     return (
       <div className="status-card status-finished">
-        <span className="status-kicker">对局结束</span>
+        <span className="status-kicker">
+          对局结束{state.variant === 'jieqi' ? ' · 揭棋' : ''}
+        </span>
         <strong>{result.title}</strong>
         <span className="status-detail">{result.detail}</span>
       </div>
@@ -166,7 +176,10 @@ function StatusLine({ state }: { state: SessionState }) {
 
   return (
     <div className={`status-card ${game.turn === state.seat ? 'your-turn' : ''}`}>
-      <span className="status-kicker">{state.mode === 'local' ? '本地双人' : '对局中'}</span>
+      <span className="status-kicker">
+        {state.mode === 'local' ? '本地双人' : '对局中'}
+        {state.variant === 'jieqi' ? ' · 揭棋' : ''}
+      </span>
       <strong>{title}</strong>
       <span className="status-detail">{detail}</span>
     </div>
@@ -235,12 +248,16 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
     prevMoveCountRef.current = count
     if (count <= prev) return
     playSfx('move')
-    if (isInCheck(game.board, game.turn)) {
+    const checked =
+      state.variant === 'jieqi'
+        ? jieqiIsInCheck(game.board, game.turn)
+        : isInCheck(game.board, game.turn)
+    if (checked) {
       const timer = window.setTimeout(() => playSfx('check'), 180)
       return () => window.clearTimeout(timer)
     }
     return undefined
-  }, [game.moves.length, game.board, game.turn, game.status])
+  }, [game.moves.length, game.board, game.turn, game.status, state.variant])
 
   // 收到对方的新聊天消息时，在棋盘上弹出一条浮层提醒；聊天面板打开时不再打扰。
   useEffect(() => {
@@ -269,8 +286,13 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
   }, [chatPing])
 
   const legal = useMemo(
-    () => (selected === null ? [] : legalMovesFor(game, selected)),
-    [game, selected],
+    () =>
+      selected === null
+        ? []
+        : state.variant === 'jieqi'
+          ? jieqiLegalMovesFrom(game, selected)
+          : legalMovesFor(game, selected),
+    [game, selected, state.variant],
   )
 
   const canPlay =
@@ -278,7 +300,10 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
     (state.mode === 'local' ||
       (state.conn === 'connected' && state.seat !== null && state.seat === game.turn))
 
-  const history = useMemo(() => buildHistory(game), [game])
+  const history = useMemo(
+    () => buildHistory(game, state.variant, state.seed),
+    [game, state.variant, state.seed],
+  )
   const visibleHistory = history.slice(-18)
   const lastMove = history.length > 0 ? history[history.length - 1] : null
   const lastMoveIsOpponent =
@@ -311,7 +336,7 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
   }
 
   const copyInvite = async () => {
-    const link = inviteLink(state.room)
+    const link = inviteLink(state.room, state.variant)
     try {
       if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
       await navigator.clipboard.writeText(link)
@@ -423,6 +448,7 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
           <div className="board-stage">
             <Board
               game={game}
+              variant={state.variant}
               viewColor={viewColor}
               selected={selected}
               legal={legal}

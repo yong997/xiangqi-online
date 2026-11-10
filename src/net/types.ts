@@ -1,4 +1,4 @@
-import type { GameStatus } from '../game/types'
+import type { GameStatus, GameVariant } from '../game/types'
 import type { TimeControl } from './clock'
 
 export type Seat = 'red' | 'black'
@@ -29,6 +29,8 @@ export type WirePayload =
       status: GameStatus
       seatMap: Record<string, Seat>
       nameMap: Record<string, string>
+      variant?: GameVariant
+      seed?: number
       timeControl?: TimeControl
       redTotalMs?: number | null
       blackTotalMs?: number | null

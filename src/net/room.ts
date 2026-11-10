@@ -1,3 +1,5 @@
+import type { GameVariant } from '../game/types'
+
 export interface RouteLobby {
   name: 'lobby'
 }
@@ -6,6 +8,7 @@ export interface RouteGame {
   name: 'game'
   room: string
   intent: 'create' | 'join'
+  variant: GameVariant
 }
 
 export interface RouteLocal {
@@ -49,19 +52,21 @@ export function parseHash(hash: string): Route {
     name: 'game',
     room,
     intent: params.get('host') === '1' ? 'create' : 'join',
+    variant: params.get('mode') === 'jieqi' ? 'jieqi' : 'standard',
   }
 }
 
-/** 分享给朋友的链接是加入链接，不带 host=1。 */
-export function inviteLink(room: string): string {
+/** 分享给朋友的链接是加入链接，不带 host=1；揭棋会带上 mode=jieqi。 */
+export function inviteLink(room: string, variant: GameVariant = 'standard'): string {
   const { origin, pathname } = window.location
-  return `${origin}${pathname}#/r/${room}`
+  const suffix = variant === 'jieqi' ? '?mode=jieqi' : ''
+  return `${origin}${pathname}#/r/${room}${suffix}`
 }
 
-export function createRoomHash(room: string): string {
-  return `#/r/${room}?host=1`
+export function createRoomHash(room: string, variant: GameVariant = 'standard'): string {
+  return `#/r/${room}?host=1${variant === 'jieqi' ? '&mode=jieqi' : ''}`
 }
 
-export function joinRoomHash(room: string): string {
-  return `#/r/${room}`
+export function joinRoomHash(room: string, variant: GameVariant = 'standard'): string {
+  return `#/r/${room}${variant === 'jieqi' ? '?mode=jieqi' : ''}`
 }

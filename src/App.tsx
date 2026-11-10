@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import type { GameVariant } from './game/types'
 import { TIME_CONTROL_OFF, type TimeControl } from './net/clock'
 import { generateRoomCode, joinRoomHash, parseHash, type Route } from './net/room'
 import { SessionController } from './net/session'
@@ -11,11 +12,12 @@ interface GameRouteProps {
   room: string
   intent: 'create' | 'join'
   name: string
+  variant: GameVariant
   timeControl?: TimeControl
   onLeave: () => void
 }
 
-function GameRoute({ mode, room, intent, name, timeControl, onLeave }: GameRouteProps) {
+function GameRoute({ mode, room, intent, name, variant, timeControl, onLeave }: GameRouteProps) {
   const [session] = useState(
     () =>
       new SessionController({
@@ -25,6 +27,7 @@ function GameRoute({ mode, room, intent, name, timeControl, onLeave }: GameRoute
         clientId: getClientId(),
         name: name || '玩家',
         timeControl,
+        variant,
       }),
   )
 
@@ -45,6 +48,7 @@ function GameRoute({ mode, room, intent, name, timeControl, onLeave }: GameRoute
 export default function App() {
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash))
   const [name, setName] = useState(() => loadName())
+  const [variant, setVariant] = useState<GameVariant>('standard')
   const [timeControl, setTimeControl] = useState<TimeControl>(TIME_CONTROL_OFF)
 
   useEffect(() => {
@@ -60,12 +64,12 @@ export default function App() {
   const createRoom = () => {
     const room = generateRoomCode()
     // 地址栏保持为干净的加入链接，刷新时仍能凭本地保存的座位回到红方。
-    window.history.replaceState(null, '', joinRoomHash(room))
-    setRoute({ name: 'game', room, intent: 'create' })
+    window.history.replaceState(null, '', joinRoomHash(room, variant))
+    setRoute({ name: 'game', room, intent: 'create', variant })
   }
 
   const joinRoom = (room: string) => {
-    window.location.hash = joinRoomHash(room)
+    window.location.hash = joinRoomHash(room, variant)
   }
 
   const updateName = (value: string) => {
@@ -76,11 +80,12 @@ export default function App() {
   if (route.name === 'local') {
     return (
       <GameRoute
-        key="local"
+        key={`local:${variant}`}
         mode="local"
         room="LOCAL"
         intent="create"
         name={name}
+        variant={variant}
         timeControl={timeControl}
         onLeave={goHome}
       />
@@ -90,11 +95,12 @@ export default function App() {
   if (route.name === 'game') {
     return (
       <GameRoute
-        key={`${route.room}:${route.intent}`}
+        key={`${route.room}:${route.intent}:${route.variant}`}
         mode="online"
         room={route.room}
         intent={route.intent}
         name={name}
+        variant={route.variant}
         timeControl={route.intent === 'create' ? timeControl : undefined}
         onLeave={goHome}
       />
@@ -105,6 +111,8 @@ export default function App() {
     <Lobby
       name={name}
       onNameChange={updateName}
+      variant={variant}
+      onVariantChange={setVariant}
       timeControl={timeControl}
       onTimeControlChange={setTimeControl}
       onCreate={createRoom}
