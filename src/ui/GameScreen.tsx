@@ -271,7 +271,8 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
       state.variant === 'jieqi'
         ? jieqiIsInCheck(game.board, game.turn)
         : isInCheck(game.board, game.turn)
-    if (checked) {
+    // 绝杀（将死）时只播放绝杀特效音，不再叠加「将军」语音。
+    if (checked && game.status === 'playing') {
       const timer = window.setTimeout(() => playSfx('check'), 180)
       return () => window.clearTimeout(timer)
     }
