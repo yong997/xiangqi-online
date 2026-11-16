@@ -491,6 +491,15 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
     }
   }
 
+  // 揭棋对局中暗子身份未知，推演试走会泄露身份；对局结束后才允许复盘。
+  const openAnalysis = () => {
+    if (state.variant === 'jieqi' && game.status === 'playing') {
+      session.notifyUser('揭棋对局中暂不支持推演，避免泄露暗子身份；对局结束后可复盘')
+      return
+    }
+    setAnalysisOpen(true)
+  }
+
   const undoDisabled =
     game.status !== 'playing' ||
     game.moves.length === 0 ||
@@ -624,7 +633,12 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => setAnalysisOpen(true)}
+              onClick={openAnalysis}
+              title={
+                state.variant === 'jieqi' && game.status === 'playing'
+                  ? '揭棋对局中暂不支持推演，避免泄露暗子身份'
+                  : undefined
+              }
             >
               推演
             </button>
@@ -671,7 +685,12 @@ export function GameScreen({ session, state, onLeave }: GameScreenProps) {
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => setAnalysisOpen(true)}
+              onClick={openAnalysis}
+              title={
+                state.variant === 'jieqi' && game.status === 'playing'
+                  ? '揭棋对局中暂不支持推演，避免泄露暗子身份'
+                  : undefined
+              }
             >
               推演
             </button>
